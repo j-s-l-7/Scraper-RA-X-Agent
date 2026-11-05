@@ -262,3 +262,21 @@ def test_ninety_ten_per_security() -> None:
     # equal base scores ⇒ rank(pred) = 0.5 for all; stability ranks: id 0 (σ = 0) top, id 30 lower, id 999 unknown
     r_stab = np.array([0.75, 0.25, 0.5])
     assert out.tolist() == pytest.approx((0.9 * 0.5 + 0.1 * r_stab).tolist())
+
+
+def test_svr_prediction_matches_libsvm_and_is_bit_reproducible() -> None:
+    from sklearn.svm import SVR
+
+    from ideation.models.zoo import rbf_decision
+
+    rng = np.random.default_rng(0)
+    X, y = rng.normal(size=(700, 9)), rng.normal(size=700)
+    m = SVR().fit(X[:450], y[:450])
+    sv, coef = m.support_vectors_, m.dual_coef_.ravel()
+    ours = rbf_decision(X[450:], sv, coef, m._gamma, m.intercept_[0])
+    assert np.abs(ours - m.predict(X[450:])).max() < 1e-10
+    for offset in range(1, 4):  # misaligned copies of the inputs give identical bits
+        buf = np.empty(X[450:].size + offset)
+        shifted = buf[offset:].reshape(X[450:].shape)
+        shifted[:] = X[450:]
+        assert np.array_equal(rbf_decision(shifted, sv.copy(), coef.copy(), m._gamma, m.intercept_[0]), ours)

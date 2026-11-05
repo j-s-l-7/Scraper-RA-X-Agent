@@ -235,8 +235,29 @@ def stratified_subsample(anchors: np.ndarray, max_rows: int, seed: int) -> np.nd
     return np.sort(np.concatenate(picked))
 
 
+def rbf_decision(X: np.ndarray, sv: np.ndarray, coef: np.ndarray, gamma: float, intercept: float) -> np.ndarray:
+    """``Σ_i coef_i · exp(−γ‖x − sv_i‖²) + b`` with a fixed operation order (elementwise ops and explicit
+    accumulation only, no BLAS or reductions), so it is bit-reproducible. libsvm's own predict is not: it differs by
+    a few ulp between identical calls (alignment-dependent summation), which breaks T-19's score sha256."""
+    out = np.empty(len(X))
+    chunk = 256
+    for start in range(0, len(X), chunk):
+        xb = X[start : start + chunk]
+        d2 = np.zeros((len(xb), len(sv)))
+        for f in range(sv.shape[1]):
+            diff = xb[:, f : f + 1] - sv[:, f][None, :]
+            d2 += diff * diff
+        k = np.exp(-gamma * d2)
+        acc = np.zeros(len(xb))
+        for i in range(len(sv)):
+            acc += coef[i] * k[:, i]
+        out[start : start + chunk] = acc + intercept
+    return out
+
+
 class SubsampledSVR(Learner):
-    """``svr`` on a seeded subsample stratified by anchor (≤ ``max_rows``; all rows if fewer)."""
+    """``svr`` on a seeded subsample stratified by anchor (≤ ``max_rows``; all rows if fewer). The fitted libsvm
+    model is deterministic; prediction uses :func:`rbf_decision` (same function, bit-reproducible)."""
 
     def __init__(self, params: Mapping[str, Any]) -> None:
         p = dict(params)
@@ -250,9 +271,13 @@ class SubsampledSVR(Learner):
         rows = stratified_subsample(pd.to_datetime(meta["anchor"]).to_numpy(), self.max_rows, self.seed)
         self.n_rows_ = len(rows)
         self.est_ = SVR(**self.params).fit(X.to_numpy(dtype=float)[rows], y[rows])
+        if self.est_.kernel != "rbf":
+            raise ValueError("SubsampledSVR predicts with the RBF decision function only")
 
     def _predict(self, X: pd.DataFrame, meta: pd.DataFrame) -> np.ndarray:
-        return self.est_.predict(X.to_numpy(dtype=float))
+        e = self.est_
+        sv = np.ascontiguousarray(e.support_vectors_, dtype=float)
+        return rbf_decision(X.to_numpy(dtype=float), sv, e.dual_coef_.ravel(), float(e._gamma), float(e.intercept_[0]))
 
 
 def _lgbm(params: dict[str, Any]) -> Learner:

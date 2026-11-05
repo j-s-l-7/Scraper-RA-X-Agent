@@ -94,11 +94,36 @@ def test_allowed_sources_pass(sql: str) -> None:
 
 
 def test_every_named_query_is_backtest_safe_or_live_tooling() -> None:
-    """Named queries in lake/queries.py must not touch banned sources; any future live-only one must be listed."""
+    """Named queries in lake/queries.py must not touch banned sources; any future live-only one must be listed.
+    A query with ``snapshot_exempt`` is snapshot-only (05 O5) and must still be refused in backtest mode."""
     live_only: set[str] = set()
+    snapshot_only = {"earnings_vendor_full"}
     for value in vars(Q).values():
-        if isinstance(value, NamedQuery) and value.name not in live_only:
+        if not isinstance(value, NamedQuery) or value.name in live_only:
+            continue
+        if value.name in snapshot_only:
+            with pytest.raises(BannedSourceError):
+                check_query(value, None, LakeMode.BACKTEST)
+            check_query(value, None, LakeMode.SNAPSHOT)
+        else:
+            assert not value.snapshot_exempt, value.name
             check_query(value, None, LakeMode.BACKTEST)
+            check_query(value, None, LakeMode.SNAPSHOT)
+
+
+def test_snapshot_exemption_is_narrow() -> None:
+    """The vendor exemption lifts only the bans the query names; any other banned source still raises."""
+    q = NamedQuery("q", "select eps_estimate from equity.market_snapshot", (), snapshot_exempt=("eps_estimate",))
+    with pytest.raises(BannedSourceError, match="market_snapshot"):
+        check_query(q, None, LakeMode.SNAPSHOT)
+    with pytest.raises(BannedSourceError):
+        check_query(Q.EARNINGS_VENDOR_FULL, None, LakeMode.BACKTEST)
+    check_query(Q.EARNINGS_VENDOR_FULL, None, LakeMode.SNAPSHOT)
+    plain = NamedQuery("p", "select eps_estimate from equity.earnings_event", ())
+    with pytest.raises(BannedSourceError):
+        check_query(plain, None, LakeMode.SNAPSHOT)  # no exemption declared: still banned
+    exempt = [v.name for v in vars(Q).values() if isinstance(v, NamedQuery) and v.snapshot_exempt]
+    assert exempt == ["earnings_vendor_full"]
 
 
 def test_only_named_queries_are_accepted() -> None:

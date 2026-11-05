@@ -55,14 +55,14 @@ Runtimes 0.83 s / 0.79 s. `ideation init-db` then created schema objects: run 1 
 | `uv sync --frozen` | Audited 68 packages | 0.11 s |
 | `uv run python -c 'import sys; print(sys.version)'` | 3.12.12 | 0.17 s |
 | `uv run ruff check .` | All checks passed! | 0.14 s |
-| `uv run pytest -m "not lake"` | **267 passed**, 24 deselected (8.66 s inside pytest) | 10.1 s |
-| `uv run pytest -m lake` | **24 passed**, 267 deselected (4.14 s inside pytest) | 5.4 s |
-| `uv run pytest -m lake` with an unreachable DSN | 24 skipped | 1.4 s |
+| `uv run pytest -m "not lake"` | **267 passed**, 25 deselected (8.66 s inside pytest) | 10.1 s |
+| `uv run pytest -m lake` | **25 passed**, 267 deselected (~4.5 s inside pytest) | 5.5 s |
+| `uv run pytest -m lake` with an unreachable DSN | all skipped | 1.4 s |
 | `uv run python scripts/secret_scan.py --all` | secret_scan: clean | 0.37 s |
 | `uv run ideation init-db` ×2 | applied: none; already applied: [1, 2] | 1.6 s / 1.0 s |
 | `uv run ideation doctor` | doctor passed (0 FAIL, 1 WARN) | 1.3 s |
 
-Test counts by marker: unit 154, leakage 113, lake 24 (291 total). Coverage of the required items:
+Test counts by marker: unit 154, leakage 113, lake 25 (292 total). Coverage of the required items:
 - T-10..T-14 (`tests/leakage/test_lags.py`): exact 02 §7 dates, including leap Feb-29 (T-11), the FY-closing quarter
   (T-12), event later-wins / earlier-ignored / future-dated-ignored (T-13), SHP Sunday deadline → Monday 2024-04-22,
   CPI/IIP leap and non-leap, and FY2020 ≥ 2020-08-01 (T-14).
@@ -83,6 +83,15 @@ Test counts by marker: unit 154, leakage 113, lake 24 (291 total). Coverage of t
   throw-away schema, rolled back, give an identical catalog.
 - Run registry: write/read; skip on the same `run_key`; `--force` supersedes; failure recorded.
 - T-19 scaffold: SHA-256 of the score parquet is identical across runs and across `n_jobs` 1 vs -1.
+- Macro lag dispatch: every one of the 171 real `macro.series` codes resolves to the family its source implies.
+
+**Fresh-clone verification** (`git clone --branch phase-0-scaffold` into a scratch dir): exec bits 100755 on the
+hook and the scanner, `uv lock --check` ok, `uv sync --locked` 2.0 s, ruff clean, the offline and lake suites green,
+secret scan clean, `python -m ideation --help` and `ideation runs list` (empty) work, doctor passed. The first
+offline run in a brand-new venv took 150 s because Python compiles the bytecode of numpy, scipy and scikit-learn on
+first import. The warm rerun took 9.3 s. The pre-push hook (fed a simulated new-branch push) passed in 14 s.
+
+CLI commands log JSON to the data dir and print their own rich tables (console log handler off).
 
 `ideation doctor` on the real lake (2026-11-05): lake_identity ideation_rw (superuser off); role_attributes
 bypassrls only; session_guards read_only=on, statement_timeout=2min, application_name=ideation-ro, search_path='';

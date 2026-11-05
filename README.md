@@ -13,3 +13,19 @@ Build status: [`docs/STATUS.md`](docs/STATUS.md).
 
 > Personal research tool, not investment advice. Model rankings are probabilistic and backtests carry residual biases
 > (restated financials, current sector labels, partial survivorship) that every report discloses.
+
+## Setup (Phase 0)
+
+```sh
+uv sync                                   # Python 3.12, exact pins from uv.lock
+git config core.hooksPath .githooks       # pre-push: secret/data scan + offline tests
+uv run ideation bootstrap-role --yes      # ONE-TIME, as the lake superuser: role ideation_rw (03 §C1)
+uv run ideation init-db                   # ideation schema migrations (idempotent)
+uv run ideation doctor                    # lake access, read-only, RLS bypass, schema, lags, freshness
+uv run pytest -m "not lake"               # offline suite;  -m lake  runs against the local lake
+```
+
+Configuration: `IDEATION_*` environment variables (see `.env.example`), with methodology parameters in `config/*.yaml`
+(hashed into every run's `config_hash`). Local artifacts live in `IDEATION_DATA_DIR` (default `~/Ideation-data`,
+outside the repo). An optional private env file (`IDEATION_SECRETS_FILE`, default `~/Ideation-data/.secrets.env`) is
+loaded when present.

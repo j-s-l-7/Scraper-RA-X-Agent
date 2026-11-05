@@ -1,0 +1,26 @@
+#!/bin/sh
+# Pre-push gate (01 §9). Activate once per clone:  git config core.hooksPath .githooks
+#  1. secret/data scan of every blob in the commits being pushed (history, not just the tip)
+#  2. secret/data scan of the work tree
+#  3. offline tests: pytest -m "not lake"
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 1
+zero=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue                       # branch deletion: nothing to scan
+  if [ "$remote_sha" = "$zero" ]; then
+    revs="$local_sha --not --remotes"                           # new branch: commits not on any remote
+  else
+    revs="$remote_sha..$local_sha"
+  fi
+  echo "pre-push: scanning commits for $local_ref"
+  uv run --frozen python scripts/secret_scan.py --range "$revs" || status=1
+done
+
+uv run --frozen python scripts/secret_scan.py --all || status=1
+uv run --frozen pytest -m "not lake" -q -p no:cacheprovider || status=1
+
+[ "$status" -ne 0 ] && echo "pre-push: BLOCKED (fix the findings above)" >&2
+exit "$status"

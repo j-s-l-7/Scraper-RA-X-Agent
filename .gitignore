@@ -28,3 +28,16 @@ __pycache__/
 .ipynb_checkpoints/
 # os
 .DS_Store
+# the reports *package* (Phase 9 renderer) is code, not generated output
+!ideation/reports/
+# more tooling caches
+.hypothesis/
+.coverage
+htmlcov/
+# keys and credentials of any kind
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*

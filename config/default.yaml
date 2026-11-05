@@ -1,0 +1,30 @@
+# Methodology parameters. Every *.yaml file in config/ is merged (keyed by file stem) and hashed into
+# `config_hash`, which every run records. Statutory/PIT lags are NOT here: they are code constants in
+# ideation/pit/lags.py and ideation/pit/overrides.py, pinned by tests, so they cannot drift via config.
+version: 1
+
+# 03 §A5: horizons. Tactical primary = 3M (63 sessions); 1M reported.
+horizons:
+  1Y: {months: 12}
+  3M: {months: 3, sessions: 63}
+  1M: {months: 1, sessions: 21}
+
+# 03 §C4 / 02 §2.1: PIT universe.
+universe:
+  top_n: 1000
+  report_slice: 500
+  adv_window_sessions: 63
+  min_traded_sessions: 50
+  recent_trade_sessions: 5
+  min_listed_sessions: {1Y: 126, tactical: 252}
+  mcap_floor_cr: 500
+
+# 03 §C3: label timing. Exit = last good session on or before A + h; label_available_from = label_end.
+labels:
+  entry: next_session_close
+  delisting_policy: hybrid   # 03 §A9 / 02 §3.3; last_price sensitivity always reported
+
+# 03 §C12: research costs (IC / spread). Portfolio costs live in config/costs.yaml (Phase 7).
+research:
+  cost_bps_per_side: 12
+  risk_free_rate: 0.07

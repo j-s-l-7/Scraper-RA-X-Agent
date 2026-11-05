@@ -1,0 +1,83 @@
+[project]
+name = "ideation"
+version = "0.1.0"
+description = "Personal Indian-equity investment-ideation system (PIT-safe research, ideas and Black-Litterman portfolios)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary - personal use" }
+dependencies = [
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "lightgbm>=4.3",
+    "cvxpy>=1.5",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "jinja2>=3.1",
+    "anthropic>=0.40",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "sse-starlette>=2.1",
+]
+
+[project.scripts]
+ideation = "ideation.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-xdist>=3.6",
+    "hypothesis>=6.100",
+    "freezegun>=1.5",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ideation"]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "N", "S", "PT"]
+ignore = [
+    "S101",   # assert is the pytest idiom
+    "S608",   # SQL strings are named constants vetted by writer.guard / the adapter ban list
+    "RUF001", # ₹ and other non-ASCII glyphs are intentional in Indian-market strings
+    "RUF002",
+    "RUF003",
+    "N812",   # `from ideation.lake import queries as Q` is the house alias for named queries
+    "S603",   # subprocess runs only `git` with fixed argv (run registry, doctor, secret scan)
+    "S607",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["ideation"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: pure-function tests, no I/O beyond tmp_path",
+    "leakage: point-in-time / leakage contract tests (02 §7)",
+    "lake: needs the local equity_lake Postgres; auto-skipped when unreachable",
+]

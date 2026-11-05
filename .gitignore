@@ -41,3 +41,5 @@ htmlcov/
 *.pfx
 id_rsa*
 id_ed25519*
+# the rendered ranking-mechanism report is output, not code (05 O7)
+docs/RANKING_MECHANISM.md

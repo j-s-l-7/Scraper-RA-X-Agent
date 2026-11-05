@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
+from pathlib import Path
 
 import psycopg
 
@@ -26,6 +27,7 @@ from ideation.lake.bans import BannedSourceError
 from ideation.pit import lags
 
 SCRAPE_ACTIVE_HOURS = 24
+LIBOMP_DIRS = (Path("/usr/local/opt/libomp"), Path("/opt/homebrew/opt/libomp"))  # Intel / Apple-silicon brew
 EXPECTED_PINS = {"RESULT_LAG": 45, "YEAR_RESULT_LAG": 60, "SHP_LAG": 21}
 
 
@@ -89,6 +91,19 @@ def check_secrets_file(settings: Settings) -> Check:
     if mode & 0o077:
         return _warn("secrets_file", f"{p} is mode {mode:o}; prefer 600")
     return _ok("secrets_file", f"{p} present, mode {mode:o}")
+
+
+def check_native_libs(libomp_dirs: tuple[Path, ...] = LIBOMP_DIRS, platform: str = sys.platform) -> Check:
+    """LightGBM and XGBoost wheels link libomp on macOS (05 §0.1): brew's libomp must exist and both must import."""
+    found = next((d for d in libomp_dirs if (d / "lib").is_dir()), None)
+    if platform == "darwin" and found is None:
+        return _fail("libomp", f"libomp not found in {[str(d) for d in libomp_dirs]}: brew install libomp")
+    try:
+        import lightgbm
+        import xgboost
+    except (ImportError, OSError) as exc:
+        return _fail("libomp", f"lightgbm/xgboost import failed: {exc}"[:300])
+    return _ok("libomp", f"{found or 'n/a'}; lightgbm {lightgbm.__version__}, xgboost {xgboost.__version__}")
 
 
 def check_lag_pins() -> Check:
@@ -207,6 +222,7 @@ def run_checks(settings: Settings, *, today: date) -> list[Check]:
         check_data_dir(settings),
         check_secrets_file(settings),
         check_lag_pins(),
+        check_native_libs(),
         check_ban_list(),
     ]
     reader = LakeReader.from_settings(settings, LakeMode.LIVE)

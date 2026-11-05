@@ -11,12 +11,14 @@ the move better than no factor (``|ln obs − ln F| < |ln obs|``; away from offs
 factors with F ≤ 0.67 search beyond ±2 trades). If no interval fits, it is dropped. Where a split or bonus is
 placed, a residual ratio that still looks like a corporate action adds a ``jump_residual`` factor, because the lake
 factor can be incomplete (BAJFINANCE 2025-06-16: split 0.5 in the lake, bhav ratio 0.10, so a missing 4:1 bonus).
+Small factors (split/bonus F > 0.67, dividends F >= 0.80) are applied at the first trade on or after the ex-date
+without the test: noise hides them, and the P1 cross-check against yfinance showed real ones being dropped.
 A later factor is matched against the residual ratio (observed ratio divided by the factors already placed at that
 trade), so a split and a bonus stored on different ex-dates for one jump (BAJFINANCE 2025-06,
 TECHM 2015-03, ONGC 2011-02) are both kept. When several split or bonus rows share a date
 (GLOBE 2021-07-29: split 0.2 and bonus 0.667), the combined product and each single factor are all candidates. The
 row's ``available_from`` is the last trade date the decision examined, so the check never looks past its own
-availability. Dividend factors below 0.95 get the same test; smaller ones are always kept.
+availability. Dividend factors below 0.80 get the same test.
 
 **Jump detector.** It runs only for uncovered securities (no ``adj_factor`` rows; 02 §3.2), and never on a
 previous close below ₹5 (tick noise). It
@@ -43,7 +45,14 @@ JUMP_K_UP = (2.0, 5.0, 10.0)
 JUMP_TOL_LOG = 0.10
 JUMP_MAX_GAP_SESSIONS = 5
 JUMP_NEAR_FACTOR_SESSIONS = 3
-DIV_CHECK_BELOW = 0.95
+DIV_CHECK_BELOW = 0.80
+"""Dividend factors >= 0.80 (yield <= 20%) are applied unchecked: daily noise hides a 5-7% dividend drop, and the
+P1 cross-check showed the check dropping real dividends (GLAXO 2022, SJVN 2019). Below 0.80 a factor is usually a
+unit error (dividend per pre-split share) and must show in the price."""
+SPLIT_CHECK_MAX = 0.67
+"""Split/bonus factors above 0.67 (1:10 .. 1:3 bonuses) are applied unchecked at the first trade on/after the ex-date:
+a 9% step is not separable from noise (KVB 2018, VIJIFIN 2017: the bonus is real per yfinance). Factors <= 0.67
+are checked, and may be re-dated or dropped."""
 SPLIT_SEARCH_OFFSETS = (0, 1, -1, 2, -2, 3, -3, 4, 5, 6, 7, 8, 9, 10)
 """Trade offsets searched for a split/bonus jump, nearest first. yfinance ex-dates often precede the NSE bhav jump
 by 3-8 sessions (P1 probe: KARDA +4, INOXWIND +4, VSTIND +5, POWERMECH +6, SARVESHWAR +8)."""
@@ -129,13 +138,19 @@ def build_factors(
                 facs = krows["factor"].astype(float).tolist()
                 kinds = krows["kind"].tolist()
                 combined = float(np.prod(facs))
-                if kind_group == "dividend" and combined >= DIV_CHECK_BELOW:
+                unchecked = (kind_group == "dividend" and combined >= DIV_CHECK_BELOW) or (
+                    kind_group == "splitbonus" and combined > SPLIT_CHECK_MAX
+                )
+                if unchecked:  # too small to tell from noise: applied at the first trade on/after the ex-date
                     if i >= len(t) or i < 1:
-                        bump("dividend_outside_trading")
+                        bump(f"{kind_group}_outside_trading")
                         continue
                     for f, k in zip(facs, kinds, strict=True):
                         out.append(_row(sid, ex, t[i], f, k, "adj_factor", "", max(ex64, t[i])))
                         placed[i] += math.log(f)
+                        if kind_group == "splitbonus":
+                            placed_sb_avail[i] = max(placed_sb_avail.get(i, t[i]), t[i])
+                    bump(f"{kind_group}_unchecked")
                     continue
                 cands = [(combined, "+".join(kinds), facs)]
                 if len(facs) > 1:

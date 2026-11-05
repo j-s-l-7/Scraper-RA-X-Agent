@@ -16,6 +16,8 @@ EXPECTED_TABLES = {
     "chat_message",
     # 02 (03 §E P0)
     "run_manifest", "experiment_trial", "calendar", "security_map", "universe_member", "universe_coverage", "label",
+    # 05 §8 (P1, 003)
+    "holdout_unseal",
 }  # fmt: skip
 
 

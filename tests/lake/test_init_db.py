@@ -44,21 +44,32 @@ def tables_in(conn: psycopg.Connection, schema: str) -> set[str]:
 
 
 def test_init_db_twice_is_idempotent(settings: Settings, rw_conn: psycopg.Connection) -> None:
+    """Re-applying the already-applied files is a no-op. Pending files are NOT applied here: only ``init-db`` on
+    ``main`` (or an explicit owner-approved run) touches the shared ledger (05 §10.1); branches test new DDL in
+    ``ddl_sandbox`` (``test_pending_migrations_in_sandbox``)."""
     migrations = discover()
     writer = Writer.from_settings(settings)
     with writer.connect() as conn:
-        migrate(conn, migrations)  # brings the schema up to date (no-op when already applied)
+        dry = migrate(conn, migrations, dry_run=True)  # also checks drift of every applied file
+    applied = [m for m in migrations if m.version in dry.already]
+    assert [m.version for m in applied] == list(range(1, len(applied) + 1)), "applied versions must be a prefix"
     before = fingerprint(rw_conn, "ideation")
     with writer.connect() as conn:
-        again = migrate(conn, migrations)
+        again = migrate(conn, applied)
     assert again.applied == ()
-    assert again.already == tuple(m.version for m in migrations)
+    assert again.already == tuple(m.version for m in applied)
     assert fingerprint(rw_conn, "ideation") == before
-    assert tables_in(rw_conn, "ideation") >= EXPECTED_TABLES
     ledger = rw_conn.execute("select version, checksum from ideation.schema_migration order by 1").fetchall()
-    assert ledger == [(m.version, m.checksum) for m in migrations]
+    assert ledger == [(m.version, m.checksum) for m in applied]
+    if not dry.pending:
+        assert tables_in(rw_conn, "ideation") >= EXPECTED_TABLES
     owners = {r for (k, r) in before if k == "rel"}
     assert all(r.endswith(":ideation_rw") for r in owners)
+
+
+def test_pending_migrations_in_sandbox(ddl_sandbox: psycopg.Connection) -> None:
+    """Every file applied (pending ones inside the rolled-back sandbox) yields exactly the expected tables."""
+    assert tables_in(ddl_sandbox, "ideation") >= EXPECTED_TABLES
 
 
 def test_migration_files_are_idempotent_from_scratch(rw_conn: psycopg.Connection) -> None:

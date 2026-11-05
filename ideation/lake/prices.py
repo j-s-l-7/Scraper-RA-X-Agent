@@ -208,7 +208,10 @@ def build_factors(
     jumps = detect_jumps(px[~px["security_id"].isin(covered)], near, covered)  # 02 §3.2: uncovered names only
     stats["jumps"] = {k: int(v) for k, v in jumps["flag"].value_counts().items()} if len(jumps) else {}
     fac = pd.concat([fac, jumps], ignore_index=True)
-    fac["role"] = np.where(fac["kind"].isin(["split", "bonus"]), "basis_conversion", "data")
+    # split/bonus, and residual jumps standing in for a bonus missing from the lake, convert share bases (03 §C2)
+    fac["role"] = np.where(
+        fac["kind"].isin(["split", "bonus"]) | (fac["flag"] == "jump_residual"), "basis_conversion", "data"
+    )
     fac = fac.sort_values(["security_id", "eff_date", "kind", "factor"]).reset_index(drop=True)
 
     # rights (no factor): flag ex-dates
@@ -226,6 +229,28 @@ def build_factors(
         }
     ).sort_values(["security_id", "ex_date"])
     return FactorResult(fac, rights.reset_index(drop=True), stats)
+
+
+def face_value_now(issue_size: pd.DataFrame, segments: pd.DataFrame) -> pd.DataFrame:
+    """Latest NSE face value per security (B2 market cap, 03 §C2). Role ``basis_conversion``: B2 may use today's
+    FV only when no split/bonus took effect after the FY end, so FV-today equals FV-then (a unit, not information)."""
+    sym2sec = _symbol_security(segments)
+    iz = issue_size.sort_values(["symbol", "date"]).groupby("symbol", as_index=False).tail(1)
+    iz = iz.assign(security_id=iz["symbol"].map(sym2sec)).dropna(subset=["security_id", "face_value"])
+    iz = iz.sort_values("date").groupby("security_id", as_index=False).tail(1)
+    return (
+        pd.DataFrame(
+            {
+                "security_id": iz["security_id"].astype("int64"),
+                "face_value": iz["face_value"].astype(float),
+                "as_of": iz["date"],
+                "available_from": iz["date"],
+                "role": "basis_conversion",
+            }
+        )
+        .sort_values("security_id")
+        .reset_index(drop=True)
+    )
 
 
 def _row(

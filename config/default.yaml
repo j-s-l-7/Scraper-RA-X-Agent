@@ -9,15 +9,38 @@ horizons:
   3M: {months: 3, sessions: 63}
   1M: {months: 1, sessions: 21}
 
-# 03 §C4 / 02 §2.1: PIT universe.
+# PIT universes (P1). 05 §1 / O1 / O10 is binding: two universes per anchor plus the 03 §C4 top-1000 slice.
+# ADV63 = zero-filled mean traded value over the last 63 good sessions (bhav turnover_lacs; ₹1 cr = 100 lakh).
 universe:
-  top_n: 1000
-  report_slice: 500
+  top_n: 1000                 # in_u1000 (03 §C4 / 02 §2.1), kept as a reported slice (05 O1)
+  report_slice: 500           # in_u500
   adv_window_sessions: 63
-  min_traded_sessions: 50
-  recent_trade_sessions: 5
+  min_traded_sessions: 50     # >= 50 of the last 63 sessions
+  recent_trade_sessions: 5    # and at least one trade in the last 5
+  liquidity_series: [EQ, BE]  # 05 §1.1: stitched security in series EQ/BE (BZ trades excluded from liquidity)
   min_listed_sessions: {1Y: 126, tactical: 252}
-  mcap_floor_cr: 500
+  pre2010_listed_credit_sessions: 1000  # bhav starts 2010-01-04: names already listed then are not 'too new'
+  mcap_floor_cr: 500          # 02 §2.1 scorable floor, used only for the U1000 coverage report
+  idea_mcap_floor_cr: 500     # 05 O1: idea / portfolio stage only (used later)
+  fy_max_age_days: 730        # has_fy_at_anchor: an available annual FY ending within this many days of A
+  u_score:                    # 05 §1.1 (1Y training and scoring)
+    adv63_floor_cr: 0.2       # primary
+    adv63_sensitivity_cr: 0.5 # pre-registered sensitivity (in_u_score_adv05)
+    mcap_floor_cr: 100
+    min_feature_complete: 0.6 # hook: no-op until P2 supplies the core-feature completeness share
+  u_score_t:                  # 05 §1.2 (tactical; unmapped and delisted names included)
+    adv63_floor_cr: 0.2       # the same low trading floor
+    mcap_floor_cr: 100        # where mcap is known
+    adv63_floor_unknown_mcap_cr: 0.5
+  mcap:                       # 03 §C2 / 02 §1.3 hierarchy A -> B1 -> B2
+    shares_max_age_days: 400
+    disagree_ratio: 1.25      # two methods disagree by > 25% => median + mcap_flag
+    b1_min_abs_np_cr: 1.0
+  coverage_02:                # 02 §0.1 reproduction (its own definition, reported beside ours)
+    turnover_window_days: 90
+    fund_period_end_min_days: 60
+    fund_period_end_max_days: 610
+    fund_metric_ids: [12, 123, 21]  # annual Sales, Revenue, Net Profit
 
 # 03 §C3: label timing. Exit = last good session on or before A + h; label_available_from = label_end.
 labels:

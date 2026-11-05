@@ -536,7 +536,11 @@ def build_derived(snapshot_dir: Path, *, git_sha: str | None = None) -> dict[str
             co,
         )
         stats["factors"] = fr.stats
+        from ideation.lake.prices import face_value_now
+
+        fv_now = face_value_now(load(snapshot_dir, "issue_size", ["symbol", "date", "face_value"]), st.segments)
         files = {
+            "face_value_now": fv_now,
             "calendar": cal_df.assign(available_from=cal_df["session"], role="data"),
             "security_map": seg,
             "prices": prices,

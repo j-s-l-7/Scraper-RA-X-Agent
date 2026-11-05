@@ -1,5 +1,7 @@
 # Reconciled decisions (binding) — read this FIRST
 
+> **Read order:** this file, then `05_MODEL_SPRINT.md` (binding addendum; overrides this file where they conflict, see its §0.2), then `06_PAST_QUANT_WORK_DIGEST.md` (owner's original modelling; filled into 05 §11).
+
 This file reconciles `01_ARCHITECTURE_PLAN.md` (architect) and `02_VALIDATION_PLAN.md` (leakage/validation red-team).
 **Where they conflict, this file wins.** Where this file is silent, follow 01 for structure/features/ideas/portfolio/chat and
 02 for PIT contract, universe, labels, CV, statistics, audits, tests and bias disclosure.

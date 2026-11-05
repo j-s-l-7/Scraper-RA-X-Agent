@@ -75,18 +75,19 @@ def _t05(key: str, t05_data: tuple) -> tuple[float, tuple[float, float]]:
     return float(ic.mean()), ci.ci90
 
 
-@pytest.mark.parametrize("key", ["ridge", "scr", "rf", "xgb"])
+@pytest.mark.parametrize("key", ["ridge", "scr", "rf"])
 def test_t05_planted_signal_recovered(key: str, t05_data: tuple) -> None:
     mean, (lo, _hi) = _t05(key, t05_data)
     assert 0.06 <= mean <= 0.14, (key, mean)
     assert lo > 0, (key, lo)
 
 
-def test_t05_lgbm_signal_passes_through(t05_data: tuple) -> None:
+@pytest.mark.parametrize("key", ["lgbm", "xgb"])
+def test_t05_booster_signal_passes_through(key: str, t05_data: tuple) -> None:
     """The pipeline carries the signal (CI excludes 0) and nothing inflates it (< 0.14)."""
-    mean, (lo, _hi) = _t05("lgbm", t05_data)
-    assert lo > 0
-    assert mean < 0.14
+    mean, (lo, _hi) = _t05(key, t05_data)
+    assert lo > 0, (key, lo)
+    assert mean < 0.14, (key, mean)
 
 
 @pytest.mark.xfail(
@@ -96,6 +97,16 @@ def test_t05_lgbm_signal_passes_through(t05_data: tuple) -> None:
 )
 def test_t05_lgbm_full_criterion(t05_data: tuple) -> None:
     mean, (lo, _hi) = _t05("lgbm", t05_data)
+    assert 0.06 <= mean <= 0.14
+    assert lo > 0
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason="measured: xgb clears the 0.06 floor only at this seed (0.0614; seeds 1/2: 0.044/0.054); see STATUS E1",
+)
+def test_t05_xgb_full_criterion(t05_data: tuple) -> None:
+    mean, (lo, _hi) = _t05("xgb", t05_data)
     assert 0.06 <= mean <= 0.14
     assert lo > 0
 

@@ -200,14 +200,14 @@ subsample, bagging_freq = subsample_freq, min_data_in_leaf = min_child_samples; 
 | item | result |
 |---|---|
 | T-04 shuffled labels, all 9 learners (43 anchors × 100 names × 6 features; one WF fold: train 3 anchors, test 40; seeds 0–19) | pass. Mean OOS IC per learner between −0.0037 (scr) and +0.0019 (svr); seeds with \|t\| ≥ 2.5: **0/20 for every learner**; max \|t\| 1.77 (rf) … 2.28 (mlp). For reference the rule's own false-alarm rate is 4.4% per learner (t39), 33% that at least one of 9 trips. |
-| T-05 planted Spearman 0.10 (12 anchors × 800 names × 12 features; annual WF with refits, 9 test years; seed 0; oracle IC of f0 on the test anchors 0.099) | ridge 0.087 [CI90 0.057, 0.111], scr 0.093 [0.063, 0.118], rf 0.065 [0.042, 0.084], xgb 0.061 [0.043, 0.077] pass [0.06, 0.14] with CI > 0. **lgbm 0.041 [0.024, 0.057] fails the 0.06 floor** (CI > 0 and < 0.14 hold; recorded as a strict xfail). |
+| T-05 planted Spearman 0.10 (12 anchors × 800 names × 12 features; annual WF with refits, 9 test years; seed 0; oracle IC of f0 on the test anchors 0.099) | ridge 0.087 [CI90 0.057, 0.111], scr 0.093 [0.063, 0.118], rf 0.065 [0.042, 0.084] pass [0.06, 0.14] with CI > 0 (and on seeds 1–2). **Not green for the boosters:** xgb 0.061 [0.043, 0.077] clears the floor only at this registered seed (0.044/0.054 on seeds 1/2; non-strict xfail); **lgbm 0.041 [0.024, 0.057] fails the 0.06 floor** (strict xfail). For both, CI > 0 and mean < 0.14 hold and are asserted. |
 | T-05 seed spread (seeds 0/1/2, same size; oracle 0.099/0.091/0.108) | ridge 0.087/0.086/0.089, scr 0.093/0.085/0.100, rf 0.065/0.069/0.080, xgb 0.061/0.044/0.054, lgbm 0.041/0.027/0.053. At 3 × 2,000 training rows (6 anchors × 2,000, oracle 0.081/0.096/0.106): ridge 0.071/0.081/0.097, lgbm 0.028/0.045/0.069, xgb 0.036/0.032/0.079. At Spearman 0.30 the boosters reach 0.79–0.84 of the oracle (lgbm 0.231, xgb 0.246 vs ridge 0.288, oracle 0.294): weak-signal attenuation, not a pipeline defect. |
 | T-06 planted leak | `check_available` raises `LeakageError` naming `x_leak` (or drops it); guarded OOS IC < 0.14; the same model with the leak included scores > 0.5 (the test has teeth). The fold driver also raises on any training row with `label_end > T`. |
 | T-07 (C3) | test 2022 ⇒ train {2019, 2020, 2021}; a 2021 label ending after T purges 2021 ⇒ {2018, 2019, 2020}. |
 | T-08 (C3 analog) | 1Y labels on monthly anchors, test block from 2022-01-31: 2021-01-29 (label_end 2022-01-28) kept, 2021-02-26 purged, 36 train anchors 2018-02-28 … 2021-01-29, 11 purged. Tactical 3M: last train 2019-10-31 without embargo, 2019-07-31 with embargo 3; 12 folds 2014-01 … 2025-06. |
 | T-09 (O4) | 9 groups / k = 2: 36 splits, 8 paths, every path covers each anchor once, each group tested 8 times, no train anchor right after a test group, no overlapping label spans. Tactical 12 groups: 66 splits, 11 paths. |
 | T-18 | the R1 fit is called once per anchor (7 calls, one anchor each); every model fit (90/10 σ, VIF selection, scr) sees exactly its fold's train anchors and only training labels. |
-| T-19 | score parquet sha256 identical across two runs for all 9 learners plus Unified, Composite EW, industry WF, WFO-scr and RF 90/10; RF fit n_jobs 1 vs −1 identical. libsvm's own predict differs by ~5e-15 between identical calls, so `svr` predicts with an explicit-order RBF decision function (matches libsvm to < 1e-10, bit-identical across input alignments). |
+| T-19 | score parquet sha256 identical across two runs for all 9 learners plus Unified, Composite EW, industry WF, WFO-scr and RF 90/10; RF fit n_jobs 1 vs −1 identical. The 14 score hashes are also identical across two separate processes with different `PYTHONHASHSEED` (1 and 987). libsvm's own predict differs by ~5e-15 between identical calls, so `svr` predicts with an explicit-order RBF decision function (matches libsvm to < 1e-10, bit-identical across input alignments). |
 | scr signs | all coefficients ≥ 0 after the flip; priors contradicting the data give 0. |
 | VIF | planted twin (`a + 0.05·noise`, VIF > 100) dropped; remaining VIF < 5; exact collinearity ⇒ inf. |
 | isotonic | raw decile α non-monotone ⇒ α_iso and α(p) monotone; α_shrunk = 0.5·α_raw. |
@@ -220,7 +220,7 @@ subsample, bagging_freq = subsample_freq, min_data_in_leaf = min_child_samples; 
 | command | result | runtime |
 |---|---|---|
 | `uv run ruff check .` | All checks passed! | 0.2 s |
-| `uv run pytest -m "not lake"` | **380 passed, 1 xfailed** (unit 224, leakage 157) | 85 s warm (87 s wall) |
+| `uv run pytest -m "not lake"` | **380 passed, 1 xfailed, 1 xpassed** (unit 224, leakage 158; the xpass is the non-strict xgb full-criterion test at seed 0) | 85 s warm (87 s wall) |
 | `uv run pytest -m lake` | **27 passed** (incl. ddl_sandbox DDL + registry) | 9.5 s |
 | `uv run python scripts/secret_scan.py --all` | clean | 0.4 s |
 | `uv run ideation trials register --family 1Y-june --dry-run` | 50 trials with hashes | ~2 s |
@@ -246,6 +246,16 @@ The real ledger was checked before and after the lake suite: versions [1, 2] onl
 
 ### Risks for MS1 / MS2
 - Booster attenuation (above); expect lgbm/xgb to lose to ridge/scr/rf on weak signals.
+- **R1 erases anchor-constant (broadcast) columns**: rank-gauss and within-group z of a column that is constant within
+  an anchor are all 0 (checked). So regime broadcasts in #33 RF_GLOBAL_EXT, #50 RF_GLOBAL_EXT_9010SEC and tactical
+  #11–13 `*_T0_REGIME` would carry no regime information; they would differ from their siblings only by the
+  cross-sectional extras. How broadcast columns enter X (raw passthrough, train-fold z, …) is a design decision for
+  the orchestrator / P3 / MS1, not taken in E1.
+- **Ledger hazard:** until P1 takes the rolled-back `test_init_db_twice_is_idempotent`, one `pytest -m lake` run in
+  P1's checkout commits 003–009 to the real ledger; this worktree's lake tests and doctor would then fail with "ledger
+  has version 3 but no file".
+- The MS1 card says `trials register` gives 48 rows; with the 05 §11 additions it gives **50** (1Y) and **25**
+  (tactical), as intended.
 - With 3 training anchors the anchor-clustered p-value uses t(2) (critical 4.30), so P1_WFO folds may often be
   "empty" (score NaN); that is the faithful rule and must be reported, not relaxed.
 - `train` must call `trials.registry.assert_registered` (or `ideation trials check`) before any fit; MS1 wires it.

@@ -10,7 +10,7 @@ One row per stitched security with at least one EQ/BE trade in the 63-session wi
 * ``U_score`` (05 §1.1; ``scorable = in_u_score``). Reasons are assigned in this waterfall order:
   ``thin_trading``, ``adv_below_floor`` (ADV63 < ₹0.2 cr), ``too_new`` (< 126 listed sessions), ``no_company``,
   ``no_fundamentals_at_anchor``, ``mcap_unknown``, ``mcap_below_floor_100``, ``features_incomplete``. The last is a
-  hook: off until P2 passes core-feature completeness. ``in_u_score_adv05`` is the ₹0.5 cr sensitivity.
+  hook: off until P2 passes the share of non-missing core features. ``in_u_score_adv05`` is the ₹0.5 cr sensitivity.
 * ``U_score_T`` (05 §1.2): ``thin_trading``, ``adv_below_floor``, ``too_new`` (< 252), then ``mcap_below_floor_100``
   where mcap is known, else ``adv_below_floor_unknown_mcap`` (ADV63 < ₹0.5 cr). Unmapped and delisted names count.
 

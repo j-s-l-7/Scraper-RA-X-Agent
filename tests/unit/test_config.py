@@ -76,7 +76,8 @@ def test_methodology_hash_is_stable_and_sensitive(tmp_path: Path) -> None:
     assert m.config_hash == load_methodology(REPO_ROOT / "config").config_hash
     assert "default.yaml" in m.files
     assert m.data["default"]["version"] == 1
-    (tmp_path / "default.yaml").write_text((REPO_ROOT / "config" / "default.yaml").read_text())
+    for f in (REPO_ROOT / "config").glob("*.yaml"):  # every methodology file (flat config/, keyed by stem)
+        (tmp_path / f.name).write_text(f.read_text())
     same = load_methodology(tmp_path)
     assert same.config_hash == m.config_hash
     (tmp_path / "default.yaml").write_text("version: 1\nuniverse: {top_n: 999}\n")

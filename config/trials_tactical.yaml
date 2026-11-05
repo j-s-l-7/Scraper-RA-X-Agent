@@ -1,0 +1,58 @@
+# Pre-registered tactical bake-off (05 §3.7 + §11 addition #25): family tactical-3M, N = 25. 3M is primary and the only
+# selecting horizon; 1M is reported from the same fits. Registered by `ideation trials register --family tactical-3M`
+# before any fit (see config/trials_1y.yaml for the hashing and no-edit rules). Owner after E1: MS2.
+family: tactical-3M
+horizon: 3M
+n_declared: 25
+
+defaults:
+  anchor_family: monthly         # month-end sessions from 2011-01
+  counted_oos: {start: 2014-01-31, end: 2025-06-30}
+  sealed: {start: 2025-07-31, end: 2026-07-31}
+  universe: U_score_T            # 05 §1.2: delisted and unmapped names included
+  adv_floor_cr: 0.2              # ADV floor; unknown-mcap names need ADV63 >= 0.5 cr
+  features: T0
+  spec: global
+  growth_mode: winsor
+  train_window: {kind: rolling, n: 36}
+  test_block: 12
+  embargo_anchors: 3             # 3M (1M reporting uses 1)
+  target: rank_gauss_ret_total
+  ninety_ten_sec: false
+
+consensus_members: [RF_T0, PRIDGE_T0, RIDGE_T0, LGBM_T0, XGB_T0, MLP_T0, SVR_T0, OLS_T0, SCR_T0, T_EW_SIGNPRIOR]
+
+trials:
+  - {num: 1, id: T_EW_SIGNPRIOR, model: p1_comp_ew}
+  - {num: 2, id: OLS_T0, learner: ols}
+  - {num: 3, id: SCR_T0, learner: scr}
+  - {num: 4, id: RF_T0, learner: rf}
+  - {num: 5, id: PRIDGE_T0, learner: pridge}
+  - {num: 6, id: RIDGE_T0, learner: ridge}
+  - {num: 7, id: LGBM_T0, learner: lgbm}
+  - {num: 8, id: XGB_T0, learner: xgb}
+  - {num: 9, id: MLP_T0, learner: mlp}
+  - {num: 10, id: SVR_T0, learner: svr}
+  - {num: 11, id: RF_T0_REGIME, learner: rf, features: T0_regime}
+  - {num: 12, id: LGBM_T0_REGIME, learner: lgbm, features: T0_regime}
+  - {num: 13, id: RIDGE_T0_REGIME, learner: ridge, features: T0_regime}
+  # T1: + delivery, fpi_sector, event features; train windows start 2020-04; counted OOS from 2023-01
+  - {num: 14, id: RF_T1, learner: rf, features: T1, train_start: 2020-04-30, counted_oos: {start: 2023-01-31, end: 2025-06-30}}
+  - {num: 15, id: LGBM_T1, learner: lgbm, features: T1, train_start: 2020-04-30, counted_oos: {start: 2023-01-31, end: 2025-06-30}}
+  - {num: 16, id: RIDGE_T1, learner: ridge, features: T1, train_start: 2020-04-30, counted_oos: {start: 2023-01-31, end: 2025-06-30}}
+  # Text on the covered subset (05 §7.3): train from 2019-01, counted OOS from 2022-01, paired against T1 on the same names
+  - {num: 17, id: RF_T1_TEXT, learner: rf, features: T1_text, subset: text_covered, train_start: 2019-01-31,
+     counted_oos: {start: 2022-01-31, end: 2025-06-30}, paired_with: RF_T1}
+  - {num: 18, id: RIDGE_T1_TEXT, learner: ridge, features: T1_text, subset: text_covered, train_start: 2019-01-31,
+     counted_oos: {start: 2022-01-31, end: 2025-06-30}, paired_with: RIDGE_T1}
+  # Vendor-surprise challenger (05 §6.3): runs only if the PT2 validity gate passes, else logged 'failed' (still in N)
+  - {num: 19, id: RF_T1_VSURP, learner: rf, features: T1_vsurp, allow_vendor_estimates: true, gate: vsurp_validity,
+     train_start: 2020-04-30, counted_oos: {start: 2023-01-31, end: 2025-06-30}, paired_with: RF_T1}
+  - {num: 20, id: RIDGE_T1_VSURP, learner: ridge, features: T1_vsurp, allow_vendor_estimates: true, gate: vsurp_validity,
+     train_start: 2020-04-30, counted_oos: {start: 2023-01-31, end: 2025-06-30}, paired_with: RIDGE_T1}
+  - {num: 21, id: RF_T0_ADV05, learner: rf, adv_floor_cr: 0.5}
+  - {num: 22, id: CONS_MAJ_T, consensus: majority, min_votes: 6}
+  - {num: 23, id: CONS_UNAN_T, consensus: unanimous, min_names: 5}
+  - {num: 24, id: ENS_RANKAVG_T, consensus: rank_average}
+  # 05 §11: 90/10 reading (a)
+  - {num: 25, id: RF_T0_9010SEC, learner: rf, ninety_ten_sec: true, paired_with: RF_T0}

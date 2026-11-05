@@ -12,10 +12,12 @@ from rich.table import Table
 
 from ideation.config import Settings, get_settings, redact_dsn
 from ideation.logs import setup_logging
+from ideation.trials.cli import app as trials_app
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Indian-equity investment-ideation system.")
 runs_app = typer.Typer(no_args_is_help=True, help="Run registry inspection.")
 app.add_typer(runs_app, name="runs")
+app.add_typer(trials_app, name="trials")
 
 console = Console()
 log = logging.getLogger("ideation.cli")

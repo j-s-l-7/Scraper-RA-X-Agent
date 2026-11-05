@@ -100,10 +100,16 @@ def find_banned_params(params: object) -> list[str]:
     return hits
 
 
-def assert_allowed(sql: str, params: object = None, *, sources: Iterable[str] = ()) -> None:
-    """Raise :class:`BannedSourceError` if the SQL text, declared sources or parameters hit the ban list."""
+def assert_allowed(
+    sql: str, params: object = None, *, sources: Iterable[str] = (), exempt: frozenset[str] = frozenset()
+) -> None:
+    """Raise :class:`BannedSourceError` if the SQL text, declared sources or parameters hit the ban list.
+
+    ``exempt`` (snapshot mode only) removes named bans; any other hit still raises.
+    """
     hits = find_banned(sql) + find_banned_params(params)
     for s in sources:
         hits.extend(find_banned(s))
+    hits = [h for h in hits if h not in exempt]
     if hits:
         raise BannedSourceError(f"banned in backtest mode: {sorted(set(hits))}")

@@ -41,6 +41,9 @@ _SPOOL_BYTES = 64 * 1024 * 1024  # COPY output spills to a temp file beyond this
 class LakeMode(StrEnum):
     LIVE = "live"
     BACKTEST = "backtest"
+    SNAPSHOT = "snapshot"
+    """The snapshot pull (P1): the backtest ban list applies, except the names a query lists in its own
+    ``snapshot_exempt`` (05 O5 vendor estimates, stored behind the ``PitView.earnings_vendor`` gate)."""
 
 
 def check_query(query: NamedQuery, params: Any, mode: LakeMode) -> None:
@@ -49,6 +52,8 @@ def check_query(query: NamedQuery, params: Any, mode: LakeMode) -> None:
         raise TypeError("the lake adapter accepts only NamedQuery objects from ideation.lake.queries")
     if mode is LakeMode.BACKTEST:
         assert_allowed(query.sql, params, sources=query.sources)
+    elif mode is LakeMode.SNAPSHOT:
+        assert_allowed(query.sql, params, sources=query.sources, exempt=frozenset(query.snapshot_exempt))
 
 
 class LakeSession:

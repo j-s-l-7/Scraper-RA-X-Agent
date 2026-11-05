@@ -48,17 +48,29 @@ def result_lag(qend: date, fy_month: int) -> int:
 
 # ── ideation rules (02 §1.2) ─────────────────────────────────────────────────────────────────────────────────
 EVENT_MATCH_WINDOW_DAYS: Final = 120
-"""A results event matches a period iff ``period_end < event_date <= period_end + 120d`` (02 §1.2)."""
+"""Minimum event match window: an event matches iff ``period_end < event_date <= window_end`` (02 §1.2)."""
+EVENT_MATCH_SLACK_DAYS: Final = 15
+"""The window also reaches ``slack`` days past the (COVID-overridden) statutory deadline, so an extended deadline
+beyond day 120 is still covered (FY2020: deadline 2020-07-31 is day 122). Widening only ever moves availability
+LATER (a later-matched event can only raise ``max(deadline + 1, event + 1)``), the conservative direction."""
 ONE_DAY: Final = timedelta(days=1)
 
 
-def match_event(period_end: date, event_dates: Iterable[date], *, today: date) -> date | None:
+def event_window_end(period_end: date, period_type: str = "A", fy_month: int = 3) -> date:
+    """Last event date that may match ``period_end``: ``max(pe + 120d, overridden deadline + 15d)``."""
+    deadline = results_deadline(period_end, period_type, fy_month)
+    return max(period_end + timedelta(days=EVENT_MATCH_WINDOW_DAYS), deadline + timedelta(days=EVENT_MATCH_SLACK_DAYS))
+
+
+def match_event(
+    period_end: date, event_dates: Iterable[date], *, today: date, period_type: str = "A", fy_month: int = 3
+) -> date | None:
     """First results event for ``period_end`` (02 §1.2), or None.
 
     Callers pass only events with ``eps_reported`` not null. Events after ``today`` are scheduled, not reported
     (the lake has 2027-dated rows), so they are ignored.
     """
-    hi = period_end + timedelta(days=EVENT_MATCH_WINDOW_DAYS)
+    hi = event_window_end(period_end, period_type, fy_month)
     eligible = [d for d in event_dates if period_end < d <= hi and d <= today]
     return min(eligible, default=None)
 
@@ -89,7 +101,7 @@ def fact_available_from(
     available = results_deadline(period_end, period_type, fy_month) + ONE_DAY
     if event_date is None or event_date > today:
         return available
-    if not period_end < event_date <= period_end + timedelta(days=EVENT_MATCH_WINDOW_DAYS):
+    if not period_end < event_date <= event_window_end(period_end, period_type, fy_month):
         raise ValueError(f"event {event_date} is outside the match window of period_end {period_end}")
     return max(available, event_date + ONE_DAY)
 

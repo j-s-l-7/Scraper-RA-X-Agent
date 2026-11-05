@@ -140,7 +140,7 @@ def test_covid_override() -> None:
     # FY2020 annual: blanket alone would give 2020-06-30; the SEBI table (2020-07-31) wins.
     assert fact_available_from(date(2020, 3, 31), "A", 3, today=TODAY) >= date(2020, 8, 1)
     assert fact_available_from(date(2020, 3, 31), "A", 3, today=TODAY) == date(2020, 8, 1)
-    # Q3 FY20 (table: normal +45) still gets the unverified blanket: 45 + 30.
+    # Q3 FY20 (verified: normal +45) keeps the blanket margin: 45 + 30 (P1 never moves a date earlier).
     assert fact_available_from(date(2019, 12, 31), "Q", 3, today=TODAY) == date(2019, 12, 31) + timedelta(days=76)
     # Q1 FY21: table 2020-09-15 beats blanket (2020-08-14 + 30 = 2020-09-13).
     assert fact_available_from(date(2020, 6, 30), "Q", 3, today=TODAY) == date(2020, 9, 16)
@@ -150,8 +150,41 @@ def test_covid_override() -> None:
     assert fact_available_from(date(2021, 6, 30), "Q", 3, today=TODAY) == date(2021, 6, 30) + timedelta(days=76)
     assert fact_available_from(date(2021, 9, 30), "Q", 3, today=TODAY) == date(2021, 9, 30) + timedelta(days=46)
     assert fact_available_from(date(2019, 9, 30), "Q", 3, today=TODAY) == date(2019, 9, 30) + timedelta(days=46)
-    # shareholding: blanket only (the results table does not apply)
+    # shareholding: its own table (Reg 31 Mar-2020 -> 2020-05-15) is inside the blanket, so blanket wins
     assert shp_available_from(date(2020, 3, 31)) == date(2020, 3, 31) + timedelta(days=21 + 30 + 1)
+
+
+def test_covid_table_verified_with_circulars() -> None:
+    """P1 item 10: every table entry inside the window cites a SEBI circular or says none was found."""
+    from ideation.pit.overrides import SHAREHOLDING_DEADLINE_OVERRIDES
+
+    for table in (RESULT_DEADLINE_OVERRIDES, SHAREHOLDING_DEADLINE_OVERRIDES):
+        for pe, entry in table.items():
+            assert "SEBI/HO/" in entry.note, pe
+            assert entry.verified or entry.deadline is None, pe  # unverified entries never shorten anything
+    assert RESULT_DEADLINE_OVERRIDES[date(2020, 3, 31)].deadline == date(2020, 7, 31)
+    assert RESULT_DEADLINE_OVERRIDES[date(2020, 6, 30)].deadline == date(2020, 9, 15)
+    assert RESULT_DEADLINE_OVERRIDES[date(2021, 3, 31)].deadline == date(2021, 6, 30)
+    assert SHAREHOLDING_DEADLINE_OVERRIDES[date(2020, 3, 31)].deadline == date(2020, 5, 15)
+
+
+def test_event_window_covers_fy2020_extension() -> None:
+    """P1 item 10: the FY2020 deadline (2020-07-31, day 122) lies beyond the 120-day window; the window now reaches
+    deadline + 15d, so a results event on 2020-07-31 matches and availability moves later (conservative)."""
+    from ideation.pit.lags import event_window_end
+
+    pe = date(2020, 3, 31)
+    assert event_window_end(pe, "A", 3) == date(2020, 8, 15)
+    assert match_event(pe, [date(2020, 7, 31)], today=TODAY) == date(2020, 7, 31)
+    assert fact_available_from(pe, "A", 3, date(2020, 8, 10), today=TODAY) == date(2020, 8, 11)
+    assert match_event(pe, [date(2020, 8, 16)], today=TODAY) is None
+    # outside COVID tables the window stays 120 days
+    assert event_window_end(date(2023, 3, 31), "A", 3) == date(2023, 3, 31) + timedelta(days=120)
+    assert event_window_end(date(2023, 6, 30), "Q", 3) == date(2023, 6, 30) + timedelta(days=120)
+    # widening never makes anything earlier: for every period, window_end >= pe + 120
+    for pe2 in [date(2019, 12, 31), date(2020, 6, 30), date(2020, 9, 30), date(2021, 3, 31), date(2021, 6, 30)]:
+        for pt in ("A", "Q"):
+            assert event_window_end(pe2, pt, 3) >= pe2 + timedelta(days=120)
 
 
 def test_overrides_never_move_earlier() -> None:

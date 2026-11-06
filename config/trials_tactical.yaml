@@ -33,6 +33,7 @@ trials:
   - {num: 8, id: XGB_T0, learner: xgb}
   - {num: 9, id: MLP_T0, learner: mlp}
   - {num: 10, id: SVR_T0, learner: svr}
+  # Regime columns: `kind: broadcast` in the feature YAML ⇒ R1 passthrough + BroadcastScaler (see trials_1y.yaml #33).
   - {num: 11, id: RF_T0_REGIME, learner: rf, features: T0_regime}
   - {num: 12, id: LGBM_T0_REGIME, learner: lgbm, features: T0_regime}
   - {num: 13, id: RIDGE_T0_REGIME, learner: ridge, features: T0_regime}

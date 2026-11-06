@@ -91,6 +91,8 @@ def unified_xs(cols: Sequence[str] = UNIFIED_COLS) -> FixedWeights:
 class Unified(Learner):
     """P1_UNIFIED (faithful): z from the training-fold mean/std of the raw yield columns (Models_Results)."""
 
+    accepts_nan = True  # raw winsorized columns keep their NaN; a missing z counts as 0
+
     def __init__(self, cols: Sequence[str] = UNIFIED_COLS) -> None:
         self.cols = list(cols)
 

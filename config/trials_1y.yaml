@@ -64,6 +64,8 @@ trials:
   - {num: 31, id: SVR_INDUSTRY, learner: svr, spec: industry}
   - {num: 32, id: SVR_HYBRID, learner: svr, spec: hybrid}
   # Feature sets, cleaning, windows, anchors, universes
+  # Regime columns are anchor-constant: declare them `kind: broadcast` in the feature YAML. R1 then passes them through
+  # and the learner is wrapped in BroadcastScaler (train-anchor mean/SD); undeclared they would be zeroed by R1.
   - {num: 33, id: RF_GLOBAL_EXT, learner: rf, features: core_ext}        # + regime broadcast, log mcap, rvol_63, beta_252
   - {num: 34, id: RF_GLOBAL_MOM, learner: rf, features: core_mom}        # + 01 §2.5 momentum set
   - {num: 35, id: LGBM_GLOBAL_MOM, learner: lgbm, features: core_mom}

@@ -220,13 +220,41 @@ subsample, bagging_freq = subsample_freq, min_data_in_leaf = min_child_samples; 
 | command | result | runtime |
 |---|---|---|
 | `uv run ruff check .` | All checks passed! | 0.2 s |
-| `uv run pytest -m "not lake"` | **380 passed, 1 xfailed, 1 xpassed** (unit 224, leakage 158; the xpass is the non-strict xgb full-criterion test at seed 0) | 85 s warm (87 s wall) |
-| `uv run pytest -m lake` | **27 passed** (incl. ddl_sandbox DDL + registry) | 9.5 s |
+| `uv run pytest -m "not lake"` | **388 passed, 1 xfailed, 1 xpassed** (unit 225, leakage 165; the xpass is the non-strict xgb full-criterion test at seed 0) | 95 s warm (96 s wall) |
+| `uv run pytest -m lake` | **27 passed** at 0b53816 (incl. ddl_sandbox DDL + registry), 7–9.5 s. Since 2026-11-06 05:30 IST the real ledger holds P1's version 3 (`p1_universe_labels`, applied from P1's branch) while main has no 003 file, so in this worktree 4 lake tests now stop at "ledger has version 3 but no file" (the hazard below). With P1's 003 file copied in temporarily (checksum matches the ledger; removed again, not committed) 26 pass; the 27th only lacks P1's `holdout_unseal` in EXPECTED_TABLES, a merge-time union. | |
 | `uv run python scripts/secret_scan.py --all` | clean | 0.4 s |
 | `uv run ideation trials register --family 1Y-june --dry-run` | 50 trials with hashes | ~2 s |
 | `uv run ideation doctor` (worktree) | libomp OK; schema_version FAIL "pending migrations [10, 11, 12]", expected until main runs init-db | |
 
 The real ledger was checked before and after the lake suite: versions [1, 2] only.
+
+### Broadcast columns (follow-up fix, 2026-11-06)
+Before the fix, R1 turned any column that is constant within an anchor (regime, macro, breadth) into all zeros, so
+#33 RF_GLOBAL_EXT, #50 RF_GLOBAL_EXT_9010SEC and tactical #11–13 `*_T0_REGIME` (and the §11 2×2 ablation) would
+have carried no regime information.
+- Declaration is explicit, never inferred from values: `TransformSpec.broadcast_cols`, normally
+  `rank.transform.columns_of_kind(feature_yaml)` over entries with `kind: broadcast` (P3 declares its regime/macro
+  columns this way; the default kind is `cross_sectional`).
+- R1 passes a declared broadcast column through raw (no winsorizing, rank or industry z; no `ind_` copy in hybrid),
+  with the usual `isna_`/`na_layout_` flags. A declared column that varies within an anchor raises `ValueError`.
+- `models.zoo.BroadcastScaler` (or `make_learner(key, broadcast=cols)`) standardises those columns inside `fit` with
+  the mean and SD (ddof 1) of one value per training anchor, applies them unchanged to test anchors, and sets missing
+  values to 0 (the training mean). Fewer than two non-missing training anchors or SD 0 ⇒ the column is 0.
+- Learners: trees and ols/ridge use the standardised column like any other; pridge also forms its squares and
+  interactions with features; **scr drops it** (no sign prior); Phase-I composites ignore it unless weighted.
+  `Learner.fit` refuses any NaN in X (R1 fills every cross-sectional column), so an unscaled broadcast column cannot
+  slip into a learner silently (Unified, which takes raw columns, is exempt).
+- An undeclared cross-sectional column that is constant at an anchor is still zeroed, and `xs_transform` emits one
+  `ConstantCrossSectionWarning` with the count of such (anchor, feature) pairs.
+- Found on the way: `_zscore` of a constant float column (e.g. 0.7) returned ±1 because the float SD was a rounding
+  residue (~1e-17), not 0. Constant columns now give exactly 0 (regression test added).
+- Tests (`tests/leakage/test_broadcast.py`): with ret = 0.35·sign(regime)·f0 + noise and alternating regime signs
+  (24 anchors × 300 names, train 12, test 12), RF recovers mean OOS IC **0.281** (min 0.223) with the broadcast
+  path and **0.009** on the old zeroing path (which also raises the warning); lgbm 0.272 vs 0.029, pridge 0.297 vs
+  0.011, ridge 0.034 both ways (no interaction term). T-18: the scaler is fitted once per fold on exactly the train
+  anchors; poisoning test-anchor regime values by ×1e6 leaves mean/SD equal to the per-anchor (not per-row) train
+  statistics. Also: undeclared ⇒ zeroed with a 24-pair warning; declared but varying ⇒ error; missing ⇒ flag + 0;
+  unscaled NaN refused; scr ignores the broadcast column; `columns_of_kind`.
 
 ### Deviations from 05 and why
 - **T-05 for lgbm fails the 0.06 floor** at the spec size (above). Hyperparameters are fixed by 05 §3.2, so nothing was
@@ -246,11 +274,7 @@ The real ledger was checked before and after the lake suite: versions [1, 2] onl
 
 ### Risks for MS1 / MS2
 - Booster attenuation (above); expect lgbm/xgb to lose to ridge/scr/rf on weak signals.
-- **R1 erases anchor-constant (broadcast) columns**: rank-gauss and within-group z of a column that is constant within
-  an anchor are all 0 (checked). So regime broadcasts in #33 RF_GLOBAL_EXT, #50 RF_GLOBAL_EXT_9010SEC and tactical
-  #11–13 `*_T0_REGIME` would carry no regime information; they would differ from their siblings only by the
-  cross-sectional extras. How broadcast columns enter X (raw passthrough, train-fold z, …) is a design decision for
-  the orchestrator / P3 / MS1, not taken in E1.
+- ~~R1 erases anchor-constant (broadcast) columns~~ **resolved** (see "Broadcast columns" below).
 - **Ledger hazard:** until P1 takes the rolled-back `test_init_db_twice_is_idempotent`, one `pytest -m lake` run in
   P1's checkout commits 003–009 to the real ledger; this worktree's lake tests and doctor would then fail with "ledger
   has version 3 but no file".

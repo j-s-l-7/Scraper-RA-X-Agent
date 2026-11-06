@@ -10,6 +10,7 @@ from scipy.stats import norm
 from ideation.rank.buckets import TABLE_ROWS, decile, membership, quintile, tail_flags
 from ideation.rank.percentile import ideation_score, percentile, signed_score
 from ideation.rank.transform import (
+    ConstantCrossSectionWarning,
     TransformSpec,
     flag_columns,
     industry_z,
@@ -129,7 +130,8 @@ def test_xs_transform_is_per_cross_section() -> None:
     df2 = df.copy()
     later = df2["anchor"] == df2["anchor"].max()
     df2.loc[later, ["roe", "ep"]] = 1e9
-    X2 = xs_transform(df2, ["roe", "ep"], TransformSpec(kind="hybrid", priors={"ep": -1}))
+    with pytest.warns(ConstantCrossSectionWarning, match="2 \\(anchor, feature\\)"):
+        X2 = xs_transform(df2, ["roe", "ep"], TransformSpec(kind="hybrid", priors={"ep": -1}))
     pd.testing.assert_frame_equal(X.loc[~later], X2.loc[~later])
     assert {"roe", "ep", "ind_roe", "ind_ep"} <= set(X.columns)
 
@@ -145,3 +147,10 @@ def test_industry_sign_flip_and_layout_flags() -> None:
     assert (X.loc[lay, "na_layout_ep"] == 1).all()
     assert (X.loc[lay, "isna_ep"] == 0).all()
     assert "na_layout_roe" not in X.columns
+
+
+def test_zscore_of_a_constant_float_is_zero() -> None:
+    """A constant like 0.7 can have a rounding-residue SD (~1e-17); its z must be 0, not ±1."""
+    x = pd.Series([0.7] * 37 + [np.nan])
+    z = industry_z(x, pd.Series(["g"] * 38), pd.Series(["s"] * 38))
+    assert (z.dropna() == 0).all()

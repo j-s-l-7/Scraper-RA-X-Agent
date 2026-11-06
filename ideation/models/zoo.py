@@ -24,7 +24,7 @@ from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.preprocessing import PolynomialFeatures
 
 from ideation.rank.percentile import percentile
-from ideation.rank.transform import flag_columns, value_columns
+from ideation.rank.transform import apply_broadcast_scaler, fit_broadcast_scaler, flag_columns, value_columns
 
 Horizon = Literal["1Y", "tactical"]
 
@@ -88,10 +88,15 @@ def learner_params(key: str, horizon: Horizon = "1Y") -> dict[str, Any]:
 
 
 class Learner:
-    """Base: remembers the fit columns, records ConvergenceWarnings."""
+    """Base: remembers the fit columns, records ConvergenceWarnings, refuses missing values.
+
+    R1 fills every cross-sectional column, so a NaN in X can only be an unscaled broadcast column: wrap the learner in
+    :class:`BroadcastScaler` (``make_learner(..., broadcast=cols)``). Learners that handle NaN set ``accepts_nan``.
+    """
 
     columns_: list[str]
     warnings_: list[str]
+    accepts_nan = False
 
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
         raise NotImplementedError
@@ -100,6 +105,9 @@ class Learner:
         raise NotImplementedError
 
     def fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> Self:
+        if not self.accepts_nan and X.isna().to_numpy().any():
+            bad = X.columns[X.isna().any()].tolist()
+            raise ValueError(f"missing values in {bad}: broadcast columns must go through BroadcastScaler")
         self.columns_ = list(X.columns)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always", ConvergenceWarning)
@@ -305,14 +313,39 @@ LEARNERS: dict[str, Callable[[dict[str, Any]], Learner]] = {
 }
 
 
-def make_learner(key: str, horizon: Horizon = "1Y", **extra: Any) -> Learner:
+def make_learner(key: str, horizon: Horizon = "1Y", *, broadcast: Sequence[str] = (), **extra: Any) -> Learner:
     """``LEARNERS[key]`` with the fixed parameters of ``horizon`` plus ``extra`` (e.g. ``priors`` for scr,
-    ``fit_jobs`` for rf). Extras never override a fixed hyperparameter."""
+    ``fit_jobs`` for rf). Extras never override a fixed hyperparameter. ``broadcast`` columns get a
+    :class:`BroadcastScaler` around the learner."""
     params = learner_params(key, horizon)
     clash = set(extra) & set(params)
     if clash:
         raise ValueError(f"fixed hyperparameters cannot be overridden: {sorted(clash)}")
-    return LEARNERS[key]({**params, **extra})
+    learner = LEARNERS[key]({**params, **extra})
+    return BroadcastScaler(learner, broadcast) if broadcast else learner
+
+
+class BroadcastScaler(Learner):
+    """Train-only standardisation of broadcast (anchor-constant) columns, then the wrapped learner.
+
+    Mean and SD come from the fold's training anchors, one value per anchor (``rank.transform.fit_broadcast_scaler``),
+    and are applied unchanged to the test anchors; missing values become 0. Trees and linear learners then use the
+    column like any other (pridge also forms its squares and interactions with features); ``scr`` drops it, because
+    it has no sign prior.
+    """
+
+    accepts_nan = True
+
+    def __init__(self, base: Learner, cols: Sequence[str]) -> None:
+        self.base = base
+        self.cols = list(cols)
+
+    def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
+        self.mean_, self.sd_ = fit_broadcast_scaler(X, pd.to_datetime(meta["anchor"]).to_numpy(), self.cols)
+        self.base.fit(apply_broadcast_scaler(X, self.mean_, self.sd_), y, meta)
+
+    def _predict(self, X: pd.DataFrame, meta: pd.DataFrame) -> np.ndarray:
+        return self.base.predict(apply_broadcast_scaler(X, self.mean_, self.sd_), meta)
 
 
 # ── 90/10 reading (a): per-security blend (05 §11) ───────────────────────────────────────────────────────────

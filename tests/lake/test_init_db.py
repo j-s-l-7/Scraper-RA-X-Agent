@@ -52,7 +52,9 @@ def test_init_db_twice_is_idempotent(settings: Settings, rw_conn: psycopg.Connec
     with writer.connect() as conn:
         dry = migrate(conn, migrations, dry_run=True)  # also checks drift of every applied file
     applied = [m for m in migrations if m.version in dry.already]
-    assert [m.version for m in applied] == list(range(1, len(applied) + 1)), "applied versions must be a prefix"
+    versions = [m.version for m in applied]  # gaps are allowed (P1 003, E1 010-012; 004-009 unused)
+    assert versions == sorted(set(versions)), "applied versions must be sorted and unique"
+    assert versions[:1] == [1], "applied versions must start at 001"
     before = fingerprint(rw_conn, "ideation")
     with writer.connect() as conn:
         again = migrate(conn, applied)

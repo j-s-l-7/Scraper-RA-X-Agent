@@ -24,3 +24,14 @@ def ddl_sandbox(rw_conn: psycopg.Connection) -> Iterator[psycopg.Connection]:
         for m in pending_migrations(rw_conn):
             rw_conn.execute(guard(m.sql))
         yield rw_conn
+
+
+@pytest.fixture(scope="session")
+def pit_store(settings):
+    """The latest finished snapshot (``ideation snapshot --full``); lake tests that need data skip without one."""
+    from ideation.pit.contract import PitStore
+
+    try:
+        return PitStore.latest(settings.data_dir)
+    except FileNotFoundError as exc:
+        pytest.skip(str(exc))

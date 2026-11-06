@@ -10,6 +10,7 @@ and only for unsealed anchors (05 §8).
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Annotated, Any
@@ -27,7 +28,7 @@ from ideation.pit.calendar import parse_anchors
 from ideation.pit.contract import PitStore
 
 app = typer.Typer(no_args_is_help=True, help="Forward-return labels with exits and holdout sealing.")
-console = Console()
+console = Console(width=None if sys.stdout.isatty() else 200)
 log = logging.getLogger("ideation.labels")
 
 LABEL_COLS = (
@@ -66,6 +67,42 @@ def exit_summary(labels: pd.DataFrame) -> pd.DataFrame:
     keep = [not is_sealed(a, h) for a, h in zip(labels["anchor"], labels["horizon"], strict=True)]
     x = labels[keep]
     return x.groupby(["horizon", "exit_type"]).size().unstack(fill_value=0)
+
+
+def bias_inputs(store: PitStore, universe: pd.DataFrame, path: Path) -> dict[str, Any]:
+    """Numbers the bias block prints (02 §8.2), over UNSEALED June 1Y labels read through the loader (qa)."""
+    from ideation.labels.exits_report import exit_counts_02, stitched_exit_summary
+
+    june = unsealed_only(sorted({a for a in universe["anchor"] if a.month == 6}), "1Y")
+    q = load_labels(june, "1Y", "qa", source=path, unsealed=set())
+    u = universe.set_index(["anchor", "security_id"])
+    key = pd.MultiIndex.from_arrays([q["anchor"], q["security_id"]])
+    q = q.assign(covered=u["company_id"].reindex(key).notna().to_numpy(),
+                 in_u_score=u["in_u_score"].reindex(key).fillna(False).to_numpy())  # fmt: skip
+    gap = {
+        str(a): round(float(g.loc[g["covered"], "ret_total"].median() - g.loc[~g["covered"], "ret_total"].median()), 4)
+        for a, g in q.groupby("anchor") if (~g["covered"]).any()
+    }  # fmt: skip
+    flags = q["flags"].map(lambda v: set(v))
+    return {
+        "june_1y_anchors": [str(a) for a in june],
+        "covered_minus_uncovered_median_1y": gap,
+        "exit_types_1y": stitched_exit_summary(q),
+        "distress_1y": int((q["exit_type"] == "distress").sum()),
+        "corp_exit_1y": int((q["exit_type"] == "corp_exit").sum()),
+        "stale_1y": int((q["exit_type"] == "stale").sum()),
+        "rights_unadjusted_1y": int(flags.map(lambda f: "rights_unadjusted" in f).sum()),
+        "no_div_data_share_1y": round(float(flags.map(lambda f: "no_div_data" in f).mean()), 4),
+        "u_score_no_div_data_share_1y": round(
+            float(flags[q["in_u_score"]].map(lambda f: "no_div_data" in f).mean()), 4
+        ),
+        "univ_median_1y_minus100": {str(a): round(float(g["ret_total"].median()), 4) for a, g in q.groupby("anchor")},
+        "univ_median_1y_lastprice": {
+            str(a): round(float(g["ret_total_last_price"].median()), 4) for a, g in q.groupby("anchor")
+        },
+        "jump_factors_applied": int((store.table("factors")["kind"] == "jump").sum()),
+        "exits_02": exit_counts_02(store),
+    }
 
 
 @app.command("build")
@@ -112,6 +149,7 @@ def build_cmd(
             labels_all.to_parquet(path, index=False)
             write_db(conn, run.run_id, labels)
             run.stats.update({"specs": len(specs), "rows": len(labels), "seconds": round(time.perf_counter() - t0, 1)})
+            run.stats["bias_inputs"] = bias_inputs(store, universe, path)
     ex = exit_summary(labels)
     t = Table("horizon", *map(str, ex.columns), title="exit types (unsealed anchors)")
     for h, row in ex.iterrows():

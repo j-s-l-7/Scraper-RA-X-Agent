@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from datetime import date
 from typing import Annotated
 
@@ -28,7 +29,7 @@ def _register_subapps() -> None:
 
 _register_subapps()
 
-console = Console()
+console = Console(width=None if sys.stdout.isatty() else 200)
 log = logging.getLogger("ideation.cli")
 
 

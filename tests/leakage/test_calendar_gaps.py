@@ -83,6 +83,7 @@ def test_parse_anchors() -> None:
     assert len(monthly) == 33
     assert set(june) <= set(monthly)
     assert parse_anchors(cal, "2011-06-26") == [date(2011, 6, 24)]  # Sunday → Friday
+    assert parse_anchors(cal, "march")[0] == date(2011, 3, 31)  # 2010-03 lacks a 63-session window
 
 
 def test_calendar_rejects_duplicates() -> None:

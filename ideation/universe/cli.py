@@ -5,6 +5,7 @@ writes ``IDEATION_DATA_DIR/outputs/<snap_id>/universe_*.parquet`` and ``ideation
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from datetime import date
 from pathlib import Path
@@ -22,7 +23,7 @@ from ideation.universe.build import UniverseConfig, build_universe
 from ideation.universe.coverage import REFERENCE_02, coverage_02
 
 app = typer.Typer(no_args_is_help=True, help="PIT universes U_score / U_score_T / U1000 (05 §1).")
-console = Console()
+console = Console(width=None if sys.stdout.isatty() else 200)
 log = logging.getLogger("ideation.universe")
 
 UM_COLS = (

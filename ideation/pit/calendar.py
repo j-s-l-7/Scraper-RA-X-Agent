@@ -142,7 +142,9 @@ def parse_anchors(cal: TradingCalendar, spec: str) -> list[date]:
             out.update(
                 cal.snap_anchor((pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0)).date())
                 for y in range(FIRST_MONTHLY_ANCHOR.year, last.year + 1)
-                if (pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0)).date() <= last
+                if FIRST_MONTHLY_ANCHOR
+                <= (pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0)).date()
+                <= last
             )
         else:
             out.add(cal.snap_anchor(date.fromisoformat(tok)))

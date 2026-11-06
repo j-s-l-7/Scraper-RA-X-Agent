@@ -268,3 +268,26 @@ def test_extraction_is_deterministic() -> None:
     a = extract.extract_document(pages, "concall_transcript", DOC)
     b = extract.extract_document(pages, "concall_transcript", DOC)
     assert repr(a) == repr(b)
+
+
+def test_early_qa_mention_in_moderator_intro_is_skipped() -> None:
+    intro = "Moderator:\nAfter the remarks we will have a question-and-answer session. " + SAFE
+    prep = "Revenue grew and margins improved nicely. " + filler(60)
+    qa = "Analyst: Could you comment on weak demand? " + filler(60)
+    pages = [intro + prep, "Moderator:\nWe will now begin the question-and-answer session.\n" + qa]
+    out = extract.extract_document(pages, "concall_transcript", DOC)
+    assert out["qa_ok"] == 1
+    assert out["n_tok_prep"] >= 500
+    assert out["prep_tone_net"] > 0 > out["qa_tone_net"]
+    # when no marker has a full prepared section before it, the first marker is kept and qa_ok is 0
+    short = extract.extract_document(["Moderator:\nThe first question is from Mr. A. " + filler(80)], "x", DOC)
+    assert short["qa_found"]
+    assert short["qa_ok"] == 0
+
+
+def test_documents_catalog_passes_the_backtest_ban_list() -> None:
+    from ideation.lake import queries as Q
+    from ideation.lake.adapter import LakeMode, check_query
+
+    check_query(Q.DOCUMENTS_CATALOG, None, LakeMode.BACKTEST)
+    check_query(Q.EARNINGS_DATES, None, LakeMode.BACKTEST)

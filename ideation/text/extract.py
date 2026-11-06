@@ -25,7 +25,7 @@ from ideation.text import clean
 from ideation.text import lexicon as lex
 from ideation.text.reader import read_pages
 
-EXTRACT_VERSION: Final = "pt1.1"
+EXTRACT_VERSION: Final = "pt1.2"
 """Bump when any rule in clean.py / this file changes: it is part of the cache key."""
 SOURCE_PRIORITY: Final = ("bse", "nse", "company_site", "other", "wayback", "commoncrawl", "tijori")
 EXCHANGE_SOURCES: Final = frozenset({"bse", "nse"})
@@ -105,6 +105,27 @@ def numeric_guidance(text: str) -> tuple[float, int]:
     return (statistics.median(mids), len(mids)) if mids else (NAN, 0)
 
 
+def choose_qa_split(body: str) -> tuple[str | None, list[str], list[list[str]]]:
+    """(qa_raw, prep sentences, prep tokens). The first Q&A marker, unless fewer than ``QA_MIN_TOKENS``
+    cleaned tokens precede it: transcripts often announce "a question-and-answer session will follow" in the
+    moderator's opening, so the first marker that has a full prepared-remarks section before it is used instead.
+    If none does, the first marker is kept (``qa_ok`` is then 0)."""
+    offs = clean.qa_offsets(body)
+    first: tuple[str | None, list[str], list[list[str]]] | None = None
+    for off in offs:
+        prep_raw = body[:off]
+        sents = clean.clean_sentences(prep_raw)
+        toks = clean.tokenize_sentences(sents)
+        cand = (body[off:], sents, toks)
+        first = first or cand
+        if sum(len(t) for t in toks) >= clean.QA_MIN_TOKENS:
+            return cand
+    if first:
+        return first
+    sents = clean.clean_sentences(body)
+    return None, sents, clean.tokenize_sentences(sents)
+
+
 # ── one document ─────────────────────────────────────────────────────────────────────────────────────────────
 def extract_document(
     pages: list[str], doc_type: str, doc_date: date, period_label: str | None = None
@@ -114,10 +135,9 @@ def extract_document(
     q_end, q_src = clean.parse_q_end("\n".join(pages[:3]), period_label, doc_date)
     body_pages = clean.strip_cover(pages)
     body = "\n".join(body_pages)
-    prep_raw, qa_raw = clean.split_qa(body)
-    prep_s = clean.clean_sentences(prep_raw)
+    qa_raw, prep_s, prep_t = choose_qa_split(body)
     qa_s = clean.clean_sentences(qa_raw) if qa_raw is not None else []
-    prep_t, qa_t = clean.tokenize_sentences(prep_s), clean.tokenize_sentences(qa_s)
+    qa_t = clean.tokenize_sentences(qa_s)
     c_prep, c_qa = count_tokens(prep_t), count_tokens(qa_t)
     c_all = {k: c_prep[k] + c_qa[k] for k in c_prep}
     qa_found = qa_raw is not None

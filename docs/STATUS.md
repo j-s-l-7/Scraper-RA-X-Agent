@@ -533,3 +533,71 @@ have carried no regime information.
   the 267-test suite), so a cold first run may approach 3 min.
 - Feature names in `phase1.DOSSIER_COLUMNS` / `UNIFIED_COLS` are the 05 §3.4 names; P2 must use them or MS1 maps them
   in the trial config.
+
+## PT1: text extraction (`ideation/text/`, branch `phase-pt1-text-extraction`)
+
+Files: `ideation/text/{reader,clean,lexicon,extract,cli}.py`; `DOCUMENTS_CATALOG` appended to `ideation/lake/queries.py`;
+setting `IDEATION_DOCUMENTS_ROOT` (`Settings.documents_root`, default `~/Scraper - Screener.in`); sub-app `text` registered
+by one `add_typer` line. Tests: `tests/unit/test_text_extract.py` (21), `tests/leakage/test_text_static.py` (15).
+No migration (020-024 unused): the output is parquet under `IDEATION_DATA_DIR/text/` (`doc_features_LEX_V1.parquet`,
+cache in `text/cache/`), nothing is written to the lake, no LLM/network, `.secrets.env` untouched.
+
+### Commands and runtimes
+- `uv run ideation text extract --types concall_transcript,concall_ppt` cold (`--no-cache`): **272 s** (4 workers,
+  53,892 docs); warm (all from cache): **12.8 s**. Targets 20 min / 1 min.
+- `uv run ruff check .` clean; `pytest -m "not lake"` 482 passed incl. PT1 (181 s earlier run 481 + 1 new); `pytest -m lake`
+  64 passed; `scripts/secret_scan.py --all` clean.
+
+### Measured acceptance
+| Item | Target | Measured |
+|---|---|---|
+| transcripts after dedupe | 22,135 ± 50 | **22,335** (+200, see below) |
+| PPTs after dedupe | 31,584 ± 50 | **31,614** (+30, in range) |
+| `filed_date` parse, BSE transcripts | >= 80% | **99.5%** (n = 17,769); all sources 97.5%; PPT 84.3% |
+| `qa_ok` transcripts | printed | **96.1%** (marker found 97.2%); PPT 0.2% |
+| TCS Oct-2024 `filed_date` | 2024-10-14 | **2024-10-14** (available_from 2024-11-01) |
+| 2020-Q1 mean `d_tone` | negative | **-0.133** (n = 213, 73.7% of calls negative); 2020-Q1 mean tone_net 0.357 vs 0.54-0.60 in 2018-19 and 2021-22 |
+
+Transcript count: the lake grew after the 05 §0.1 probe (status ok transcripts 22,146 then, 22,346 now; 134 were
+extracted on 2026-11-06 alone). Dedupe dropped 4 transcripts + 16 PPTs here (probe: 11 + 8). 1 document file unreadable.
+
+Per-year coverage (docs / companies, after dedupe, readable): transcripts 2016 483/188, 2017 641/247, 2018 698/269,
+2019 1006/335, 2020 1133/381, 2021 1515/522, 2022 2347/781, 2023 3144/944, 2024 3636/1069, 2025 4091/1228,
+2026 3591/1304. PPTs 2016 788/339, 2017 1224/460, 2018 1018/449, 2019 1960/603, 2020 2048/640, 2021 2666/797,
+2022 3281/951, 2023 3978/1111, 2024 4608/1259, 2025 5149/1426, 2026 4741/1490. BSE-PPT `filed_date` rate rises from
+28-37% (2015-17) to 97% (2024+): older PPT decks mostly lack a cover letter. The CLI prints the full table and the
+per-quarter tone table (mean tone_net, mean d_tone, share negative, n) on every run.
+
+### Rules as implemented (and deviations from 05 §7.1)
+- Cover letter: page 1 (and page 2 if page 1 went and it still matches) dropped; a page with a `Moderator:` line is never
+  cover. `filed_date`: first date on pages 1-2 inside [doc_date - 45 d, doc_date + 75 d]; dates introduced by
+  ended/period/quarter/meeting/held on/as on... are skipped (otherwise the quarter-end or board-meeting date could
+  win, an early-availability leak). Extra formats beyond the spec: `14th October 2024`, `dd/mm/yyyy`.
+- **Q&A split deviation:** first marker whose preceding cleaned prepared section has >= 500 tokens; a first marker in
+  the moderator's introduction ("a question-and-answer session will follow") made qa_ok 66.7% with the plain
+  first-match rule, 96.1% with this one. If no marker qualifies the first is kept (qa_ok = 0).
+- Negation: not/no/never plus without/neither/nor/none/cannot/hardly and any `*n't` within 3 tokens, same sentence.
+  Flips pos<->neg and g_up<->g_down (symmetric), cancels capex, leaves unc/lit alone.
+- Lexicon LEX_V1: 534 terms (135 pos, 158 neg, 55 unc, 37 lit, 150 phrases), own wording, hash in the cache key.
+- Numeric guidance: spec regex plus decimals and "per cent/percent"; guidance verb in the same sentence; per-doc median
+  midpoint `guide_pct_mid`, count `n_guide_pct`; prepared remarks only when a Q&A split exists. Present in 9.0% of
+  transcripts and 23.9% of PPTs.
+- `available_from` (05 §7.2) is computed here with `pit/lags.py` (`match_event`, `fact_available_from`): month floor,
+  filed + 1, matched event + 1, statutory floor for non-bse/nse sources. Fiscal-year month comes from the latest
+  snapshot's `financial_fact` if present (else 3). `today` for event matching = latest reported event date (no clock).
+- Dedupe key (company_id, doc_type, doc_date); the cache key is (pdf_sha256, doc_date, lexicon hash, extractor
+  version), so one PDF filed under two company_ids is extracted once and shared.
+- Read-only guarantee: `reader.py` is the only code opening Scraper files (`gzip.open(..., 'rt')`, path must sit under
+  `data/documents`, `..`/absolute/symlink escapes refused). The static test blocks write calls anywhere in
+  `ideation/text`, allows `to_parquet`/`mkdir` in `extract.py` only, and forbids psycopg, `ideation.db`, network/LLM
+  imports, clock reads and foreign paths; `ideation.lake` is imported by `cli.py` only.
+
+### Risks for PT2
+- `filed_date <= q_end` for 0.7% of parsed docs (a date other than the filing was picked); availability is still floored
+  by the month rule, but PT2 should treat `filed_src` as quality metadata.
+- Month-granular `doc_date`: a call filed late in month m is available only from m+1 start (05 §7.2) at best; BSE
+  `filed_date` is the only intra-month information.
+- Covered-names selection: coverage is survivors only and rises from ~190 companies (2016) to 1,300 (2026).
+- Tone is positive-skewed (mean tone_net ~0.6); PT2 uses within-company deltas, which the 2020-Q1 check supports.
+- Non-BSE transcripts (about 4,500) carry statutory floors only; 2 of them may be later than the true filing, never earlier.
+- `qa_ok` PPTs are ~0%; `qa_*` features are transcript-only.

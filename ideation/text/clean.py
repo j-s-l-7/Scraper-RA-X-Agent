@@ -147,12 +147,16 @@ def strip_cover(pages: list[str]) -> list[str]:
     return kept[drop:]
 
 
+def qa_offsets(text: str) -> list[int]:
+    """Start offsets of every Q&A marker, in order (05 §7.1 regex)."""
+    return [m.start() for m in QA_RE.finditer(text)]
+
+
 def split_qa(text: str) -> tuple[str, str | None]:
-    """(prepared remarks, Q&A) split at the first Q&A marker, or (text, None)."""
-    m = QA_RE.search(text)
-    if not m:
-        return text, None
-    return text[: m.start()], text[m.start() :]
+    """(prepared remarks, Q&A) split at the FIRST Q&A marker, or (text, None). ``extract_document`` may prefer a
+    later marker when the first one sits in the moderator's introduction (see ``choose_qa_split``)."""
+    offs = qa_offsets(text)
+    return (text[: offs[0]], text[offs[0] :]) if offs else (text, None)
 
 
 def _strip_safe_harbour(sentences: list[str]) -> list[str]:

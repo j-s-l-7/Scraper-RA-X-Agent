@@ -423,11 +423,10 @@ Date 2026-11-06. Branch `phase-2-fundamentals` (from `main` 2bc597a), not pushed
 ### Commands and runtimes
 | command | result | runtime |
 |---|---|---|
-| `uv run ideation features build --anchors june,march --force` | 33 anchors (2010-2026), 45,430 rows | **76.6 s** (first run 82.3 s); all 22 anchors 2015-2025 are inside this, so well under 3 min |
-| in-memory U_score with the hook, 22 anchors 2015-03..2025-06 (scratch script; no DB write, no overwrite of `universe_member`) | table below | 44 s |
+| `uv run ideation features build --anchors june,march --force` | 33 anchors (2010-2026), 45,430 rows; also prints and stores (`run.stats.coverage`, `features_coverage.parquet`) the hooked U_score coverage table below | **78.7 s** wall 84 s (first run 82.3 s); the 22 anchors of 2015-2025 are inside this, so well under 3 min |
 | `uv run ruff check .` | All checks passed! | <1 s |
 | `uv run pytest -m "not lake"` | **471 passed**, 1 skipped, 1 xfailed, 1 xpassed (E1 documented; +22 P2 unit +3 hook) | 161 s |
-| `uv run pytest -m lake` | **84 passed** (20 of them P2: registry vs catalog, 10 golden, 6 T-01, positive control, late filer, hook) | 299 s |
+| `uv run pytest -m lake` | **86 passed** (22 of them P2: registry vs catalog, 10 golden, 6 T-01, positive control, late filer, hook, dtypes, coverage row) | 284 s (287 s wall) |
 | `uv run python scripts/secret_scan.py --all` | secret_scan: clean | <1 s |
 
 Orchestrator commands on `main` after merge (not run here: they overwrite live `ideation.universe_*` and `ideation.label`):
@@ -443,12 +442,15 @@ feature filter. Optional: `features build --anchors june,march,monthly` (~2.5 s 
 ### Acceptance
 | item | result |
 |---|---|
+| 01 P2 #3 derived shares vs yfinance shares | superseded by 03 §C2 (the hierarchy starts from yfinance shares, method A) and covered by P1's T-21; not re-implemented |
 | 01 P2 #1 registry validation | `validate_metrics` resolves all 25 aliases to exactly one metric id on the live catalog (lake test) |
 | 01 P2 #2 golden values (5 named companies, 2019-06-28 and 2024-06-28) | TCS (3365), HDFCBANK (1298, `fin_layout`), BIOCON (487), SIEMENS (3061, September FY: FY Sep-2018 / Sep-2023), IDEA (1388, loss-maker; negative equity in 2024). 10 cases x 12-17 columns match values derived by hand from raw `financial_fact` rows within 1e-9 relative (plan: 1e-6). The raw rows are pinned in the test (Profit for EPS, top line, EPS, Total Assets, `available_from` per case). Examples below |
 | T-01 on fundamentals | `PitStore.poison_after(A, mode)` for `inflate`, `nan`, `shuffle` at 2019-06-28 and 2023-06-30: features (incl. mcap, `feature_complete`, `c_i`) **bit-identical**, universe rebuilt on the poisoned store too. Positive control: poisoning 900 days earlier changes the frame. Synthetic variant in `tests/unit` (3 modes) |
 | later-wins availability | lake test finds a March-FY filer whose `available_from` > deadline + 1, and shows it absent the session before and present on the first session on/after; unit test with a 2019-07-15 filer |
 | runtime | 76.6 s for all June+March anchors (limit 3 min) |
 | sealed labels | P2 never reads labels. No `ideation.label` / `labels.parquet` access anywhere in the new code or tests |
+
+The golden test loads snapshot `20261105-e33e7986` explicitly (skips when absent), so a later `snapshot --delta` does not turn it red; the other lake tests use the latest snapshot.
 
 Golden examples (hand arithmetic from the raw rows; mcap is the P1 value, method A):
 - TCS 2019-06-28 (FY Mar-2019, C): `roe` = Profit for EPS 31,472 / avg(equity 89,446 and 85,128 = 87,287) = **0.360558**; `ep` = 31,472 / 838,569.75 = **0.037531**; `rev_g1` = 146,463 / 123,104 - 1 = **0.189750**.
@@ -457,7 +459,7 @@ Golden examples (hand arithmetic from the raw rows; mcap is the P1 value, method
 - SIEMENS 2019-06-28: current FY ended 2018-09-30 (available 2018-11-30).
 
 ### U_score and feature coverage per anchor (June and March, 2015-2025; U_score = after the hook)
-Coverage columns are the share of U_score names (of those the feature applies to) with a non-NaN value.
+Coverage columns are the share of U_score names (of those the feature applies to) with a non-NaN value. Regenerate with `features build` (it prints this table and stores it in `run.stats.coverage`).
 
 | anchor | U_score before | U_score after | dropped | fin names | mean feature_complete | roe | ep | ebitda_ev | fcf_yield | roic | rev_g1 | roe_3y | eps_g3 | nd_ebitda |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -509,6 +511,14 @@ listings cannot fill it). June U_score after the hook vs 05 §1.1 expectations: 
 - The feature table is a parquet only; no DB table (the `feature_set` DDL from 001 is untouched).
 
 ### Risks for P3 / MS1
+- **Live-state footprint of this branch.** Three `ideation features build` runs from the worktree are in the live `ideation.run` /
+  `run_manifest`, and `features_fundamental.parquet` + `features_coverage.parquet` sit in the live `outputs/20261105-e33e7986/`
+  (new files only; universe and label tables untouched). The orchestrator should run `features build --force` on `main` first anyway.
+- **Registry is multi-file safe.** Only `family, prior, kind, category, set` are required; `layouts`, `growth`, `need_fy`, `lines`
+  default. `build_fundamental` only touches features whose `source` is `features_fundamental.yaml`, so P3/PT2 files add no columns
+  to the output and do not dilute `feature_complete` (unit test). Conflicting `cleaning:` keys across files raise.
+- `anchor`, `fy_end`, `feature_available_from` are python dates (date32), identical to `universe_member` / `labels`, so
+  `(anchor, security_id)` merges work without casts.
 - **U_score changes when the orchestrator reruns `universe build --force`.** Labels `xs_rank` (1Y June/March) must be rebuilt after;
   until then the stored labels pool the old U_score. The universe `run_key` now includes the features file sha, so a stale
   universe run cannot silently pass as current.
@@ -517,8 +527,8 @@ listings cannot fill it). June U_score after the hook vs 05 §1.1 expectations: 
 - **`isna_` flags**: a name missing `roe` because of negative equity is indistinguishable from a missing line. Fine for RF, but a
   linear model sees both as 0 plus `isna_roe = 1`.
 - **Sector/industry labels are today's** (layout `fin_other` and the industry z-scores depend on them): the disclosed residual bias.
-- **`nd_ebitda` P99 fill** depends on the anchor's member population (all traded, company-linked names, not only U_score);
-  it is deterministic and PIT but not the same population as U_score.
+- **`nd_ebitda` P99 fill** is the 99th percentile of the anchor's fresh `core`-layout names (all traded, company-linked, not only
+  U_score); deterministic and PIT but not the U_score population.
 - **Winsorising raw columns for `P1_UNIFIED`** must be done on the training rows by the caller per anchor (`raw_winsorized`).
 - **HDFCBANK 2024 shows the merger FY** (`rev_g1` +66%, `ta_g1` +59%): real data, not cleaned. Growth winsorization handles it.
 - The listing-date rule uses the stitched `valid_from`; a company whose first bhav row is later than its real listing (suspension,

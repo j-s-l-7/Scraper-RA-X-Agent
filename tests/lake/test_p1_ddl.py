@@ -13,7 +13,7 @@ UM_COLS = (
 
 def _um(conn: psycopg.Connection, **kw: object) -> None:
     row = {
-        "anchor": "2016-06-30", "security_id": 1, "symbol": "X", "series": "EQ", "adv63_lakh": 30.0, "n_days63": 60,
+        "anchor": "1999-06-30", "security_id": 1, "symbol": "X", "series": "EQ", "adv63_lakh": 30.0, "n_days63": 60,
         "rank_adv": 1, "listed_sessions": 300, "scorable": True, "exclusion_reason": None, "traded_ok": True,
         "in_u1000": True, "in_u500": True, "in_u_score": True, "in_u_score_adv05": False, "in_u_score_t": True,
         "u_score_t_reason": None,
@@ -31,7 +31,7 @@ def test_universe_member_valid_rows(ddl_sandbox: psycopg.Connection) -> None:
     _um(ddl_sandbox, security_id=2, scorable=False, in_u_score=False, exclusion_reason="adv_below_floor",
         in_u_score_t=False, u_score_t_reason="adv_below_floor")  # fmt: skip
     _um(ddl_sandbox, security_id=3, scorable=False, in_u_score=False, exclusion_reason="mcap_below_floor_100")
-    n = ddl_sandbox.execute("select count(*) from ideation.universe_member where anchor = '2016-06-30'").fetchone()
+    n = ddl_sandbox.execute("select count(*) from ideation.universe_member where anchor = '1999-06-30'").fetchone()
     assert n == (3,)
 
 
@@ -56,7 +56,7 @@ def test_label_new_columns_and_holdout_table(ddl_sandbox: psycopg.Connection) ->
     ddl_sandbox.execute(
         "insert into ideation.label (anchor, security_id, horizon, entry_date, label_end, label_available_from,"
         " exit_type, entry_price, exit_price, last_trade, ret_total, ret_total_last_price)"
-        " values ('2016-06-30', 1, '1Y', '2016-07-01', '2017-06-30', '2017-06-30', 'distress', 10, 4, '2017-02-01',"
+        " values ('1999-06-30', 1, '1Y', '1999-07-01', '2000-06-30', '2000-06-30', 'distress', 10, 4, '2000-02-01',"
         " -1.0, -0.6)"
     )
     ddl_sandbox.execute("insert into ideation.holdout_unseal (family, champion_config_hash) values ('1Y-june', 'abc')")

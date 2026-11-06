@@ -177,6 +177,27 @@ def coverage(
         console.print("no coverage rows for these anchors; run `ideation universe build` first")
 
 
+@app.command("bias-block")
+def bias_block_cmd(
+    run_id: Annotated[int | None, typer.Option(help="Run to describe (default: latest ok labels run).")] = None,
+) -> None:
+    """Print the mandatory Data & Bias block (02 §8.2) with this snapshot's measured numbers."""
+    from ideation.db.writer import Writer
+    from ideation.eval.bias_block import render_bias_block
+
+    settings = _init()
+    with Writer.from_settings(settings).connect() as conn:
+        if run_id is None:
+            row = conn.execute(
+                "select max(run_id) from ideation.run where kind = 'labels' and status = 'ok'"
+            ).fetchone()
+            run_id = row[0] if row else None
+        if run_id is None:
+            console.print("no ok labels run yet: run `ideation labels build` first")
+            raise typer.Exit(1)
+        console.print(render_bias_block(run_id, conn=conn), markup=False, highlight=False, soft_wrap=True)
+
+
 @app.command()
 def doctor() -> None:
     """Check environment, lake access (as ideation_rw, read-only, RLS bypass), schema version and freshness."""

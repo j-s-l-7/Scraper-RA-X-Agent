@@ -26,14 +26,38 @@ def test_universe_and_labels_rows_fit_003(ddl_sandbox: psycopg.Connection, pit_s
     cfg = UniverseConfig.from_methodology(load_methodology().data)
     members, covs, records = build_all(pit_store, cfg, [a])
     write_universe(conn, run_id, members, covs, records)
-    n = conn.execute("select count(*), count(*) filter (where in_u_score) from ideation.universe_member").fetchone()
+    n = conn.execute(
+        "select count(*), count(*) filter (where in_u_score) from ideation.universe_member where run_id = %s",
+        (run_id,),
+    ).fetchone()
     assert n == (len(members), int(members["in_u_score"].sum()))
-    cov = conn.execute("select n_u_score, extra->>'n_u_score' from ideation.universe_coverage").fetchone()
+    cov = conn.execute(
+        "select n_u_score, extra->>'n_u_score' from ideation.universe_coverage where run_id = %s", (run_id,)
+    ).fetchone()
     assert cov[0] == int(cov[1]) == int(members["in_u_score"].sum())
     assert conn.execute("select count(*) from ideation.run_manifest where run_id = %s", (run_id,)).fetchone()[0] > 0
     labels = compute_labels(pit_store, members, label_specs(pit_store.calendar, [a], ["1Y", "1M"]))
     write_labels(conn, run_id, labels)
-    got = conn.execute("select count(*), count(*) filter (where label_available_from = label_end) from ideation.label")
+    got = conn.execute(
+        "select count(*), count(*) filter (where label_available_from = label_end) from ideation.label"
+        " where run_id = %s",
+        (run_id,),
+    )
     assert got.fetchone() == (len(labels), len(labels))
     with pytest.raises(psycopg.errors.CheckViolation), ddl_sandbox.transaction():
-        conn.execute("update ideation.label set label_available_from = label_end - 1")
+        conn.execute("update ideation.label set label_available_from = label_end - 1 where run_id = %s", (run_id,))
+
+
+def test_bias_block_renders_real_numbers(settings) -> None:
+    """The latest ok labels run renders a block with measured P1 numbers (skips before the first labels run)."""
+    from ideation.db.writer import Writer
+    from ideation.eval.bias_block import render_bias_block
+
+    with Writer.from_settings(settings).connect() as conn:
+        row = conn.execute("select max(run_id) from ideation.run where kind = 'labels' and status = 'ok'").fetchone()
+        if not row or row[0] is None:
+            pytest.skip("no labels run yet")
+        text = render_bias_block(row[0], conn=conn)
+    assert "Universe: U_score" in text
+    assert "02 §0.1 coverage reproduction" in text
+    assert "true exits" in text

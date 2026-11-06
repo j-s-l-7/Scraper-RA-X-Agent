@@ -77,7 +77,6 @@ class Panel:
     series: np.ndarray
     turnover: np.ndarray
     key: np.ndarray  # sid_index * 10^6 + day, sorted
-    p_cum: np.ndarray  # Σ ln(c_k / c_{k-1}) within security (0 at each security's first trade)
     f_tot: np.ndarray  # Σ ln F (all applied factors) at trades <= k, within security
     f_px: np.ndarray  # same without dividends
     sid_index: dict[int, int]
@@ -93,10 +92,6 @@ def build_panel(prices: pd.DataFrame, factors: pd.DataFrame) -> Panel:
     sidx = np.searchsorted(uniq, sid)
     key = sidx * 1_000_000 + day
     close = p["close"].to_numpy(float)
-    lr = np.zeros(len(close))
-    lr[1:] = np.log(close[1:] / close[:-1])
-    lr[start] = 0.0
-    p_cum = _cumsum_by_group(lr, start)
     f = factors[factors["apply"].astype(bool)].copy()
     f = f[f["security_id"].isin(uniq)]
     fkey = np.searchsorted(uniq, f["security_id"].to_numpy(np.int64)) * 1_000_000 + _days(f["eff_date"])
@@ -111,7 +106,7 @@ def build_panel(prices: pd.DataFrame, factors: pd.DataFrame) -> Panel:
     late = f[ok & (f["avail"].to_numpy() > _days(f["eff_date"]))][["pos", "lnf", "div", "avail"]]
     return Panel(
         sid=sid, day=day, close=close, series=p["series"].to_numpy(object), turnover=p["turnover_lacs"].to_numpy(float),
-        key=key, p_cum=p_cum, f_tot=_cumsum_by_group(tot, start), f_px=_cumsum_by_group(px, start),
+        key=key, f_tot=_cumsum_by_group(tot, start), f_px=_cumsum_by_group(px, start),
         sid_index={int(s): i for i, s in enumerate(uniq)}, start=start, late=late.reset_index(drop=True),
     )  # fmt: skip
 
@@ -190,8 +185,12 @@ def _labels_for_spec(
     has_last = (gi >= 0) & same(hi)
     e = np.where(has_entry, lo, 0)
     x = np.where(has_last, hi, 0)
-    ln_tot = (pn.p_cum[x] - pn.p_cum[e]) - (pn.f_tot[x] - pn.f_tot[e])
-    ln_px = (pn.p_cum[x] - pn.p_cum[e]) - (pn.f_px[x] - pn.f_px[e])
+    # price leg = ln(c_x / c_e) from those two closes only (a cumulative sum would let pre-entry prices change the
+    # floating-point rounding, which the bit-exact T-03 catches); factor leg = Σ ln F over trades in (e, x]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ln_raw = np.log(pn.close[x] / pn.close[e])
+    ln_tot = ln_raw - (pn.f_tot[x] - pn.f_tot[e])
+    ln_px = ln_raw - (pn.f_px[x] - pn.f_px[e])
     if len(pn.late):  # factors not yet available at label_end: undo their adjustment
         for r in pn.late.itertuples(index=False):
             if r.avail <= end:

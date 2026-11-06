@@ -20,7 +20,7 @@ from ideation.rank.transform import columns_of_kind
 LAYOUTS = ("core", "fin_layout", "fin_other")
 KINDS = ("cross_sectional", "broadcast")
 SETS = ("core", "ext", "shown")
-REQUIRED = ("family", "prior", "kind", "category", "layouts", "set", "growth", "need_fy", "lines")
+REQUIRED = ("family", "prior", "kind", "category", "set")  # layouts / growth / need_fy / lines have defaults
 
 
 class RegistryError(ValueError):
@@ -54,11 +54,15 @@ class Registry:
     cleaning: Mapping[str, Any]
     files: tuple[str, ...] = field(default_factory=tuple)
 
-    def names(self, *, sets: Iterable[str] | None = None, layout: str | None = None) -> list[str]:
+    def names(
+        self, *, sets: Iterable[str] | None = None, layout: str | None = None, source: str | None = None
+    ) -> list[str]:
+        """Feature names, optionally restricted to sets, a layout, or one YAML file (a builder only owns its file)."""
         sets = set(sets) if sets is not None else None
         return [
             n for n, f in self.features.items()
             if (sets is None or f.set in sets) and (layout is None or layout in f.layouts)
+            and (source is None or f.source == source)
         ]  # fmt: skip
 
     def priors(self) -> dict[str, int]:
@@ -100,16 +104,19 @@ def _parse_feature(name: str, meta: Mapping[str, Any], lines: Mapping[str, Any],
         raise RegistryError(f"{source}: {name!r} set {meta['set']!r} not in {SETS}")
     if not meta["family"]:
         raise RegistryError(f"{source}: {name!r} has an empty family")
-    bad = [x for x in meta["layouts"] if x not in LAYOUTS]
-    if bad or not meta["layouts"]:
-        raise RegistryError(f"{source}: {name!r} layouts {meta['layouts']!r} invalid (allowed {LAYOUTS})")
-    unknown = [a for a in meta["lines"] if a not in lines]
+    layouts = meta.get("layouts", list(LAYOUTS))
+    bad = [x for x in layouts if x not in LAYOUTS]
+    if bad or not layouts:
+        raise RegistryError(f"{source}: {name!r} layouts {layouts!r} invalid (allowed {LAYOUTS})")
+    feature_lines = meta.get("lines") or []
+    unknown = [a for a in feature_lines if a not in lines]
     if unknown:
         raise RegistryError(f"{source}: {name!r} refers to undeclared lines {unknown}")
     return Feature(
         name=name, family=str(meta["family"]), prior=meta["prior"], kind=meta["kind"], category=str(meta["category"]),
-        layouts=tuple(meta["layouts"]), set=meta["set"], growth=bool(meta["growth"]), need_fy=int(meta["need_fy"]),
-        lines=tuple(meta["lines"]), complete=bool(meta.get("complete", meta["set"] == "core")), source=source,
+        layouts=tuple(layouts), set=meta["set"], growth=bool(meta.get("growth", False)),
+        need_fy=int(meta.get("need_fy", 1)), lines=tuple(feature_lines),
+        complete=bool(meta.get("complete", meta["set"] == "core")), source=source,
     )  # fmt: skip
 
 
@@ -135,7 +142,10 @@ def load_registry(config_dir: Path | None = None) -> Registry:
             if alias in lines:
                 raise RegistryError(f"{p.name}: duplicate line alias {alias!r}")
             lines[alias] = (section, name)
-        cleaning.update(doc.get("cleaning") or {})
+        for k, v in (doc.get("cleaning") or {}).items():
+            if k in cleaning and cleaning[k] != v:
+                raise RegistryError(f"{p.name}: cleaning key {k!r} already set to {cleaning[k]!r} by another file")
+            cleaning[k] = v
         for name, meta in (doc.get("features") or {}).items():
             if name in feats:
                 raise RegistryError(f"{p.name}: feature {name!r} already defined in {feats[name].source}")

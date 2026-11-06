@@ -146,11 +146,11 @@ def test_ipo_year_growth_is_nan_then_valid(store: PitStore) -> None:
 def test_late_filer_enters_on_its_available_from(store: PitStore) -> None:
     before = build(store, date(2019, 7, 12))
     after = build(store, date(2019, 7, 15))
-    assert before.loc[5, "fy_end"] == pd.Timestamp("2018-03-31")
-    assert after.loc[5, "fy_end"] == pd.Timestamp("2019-03-31")
-    assert before.loc[5, "feature_available_from"] <= pd.Timestamp(date(2019, 7, 12))
-    assert after.loc[5, "feature_available_from"] == pd.Timestamp("2019-07-15")
-    assert before.loc[1, "fy_end"] == pd.Timestamp("2019-03-31")
+    assert before.loc[5, "fy_end"] == date(2018, 3, 31)
+    assert after.loc[5, "fy_end"] == date(2019, 3, 31)
+    assert before.loc[5, "feature_available_from"] <= date(2019, 7, 12)
+    assert after.loc[5, "feature_available_from"] == date(2019, 7, 15)
+    assert before.loc[1, "fy_end"] == date(2019, 3, 31)
 
 
 def test_layouts_and_not_applicable_columns(store: PitStore) -> None:
@@ -196,7 +196,7 @@ def test_completeness_and_c_i(store: PitStore) -> None:
 def test_feature_available_from_never_exceeds_anchor(store: PitStore) -> None:
     for a in (date(2019, 6, 28), date(2019, 7, 15), date(2018, 6, 29)):
         f = build(store, a)
-        assert f["feature_available_from"].max() <= pd.Timestamp(a)
+        assert f["feature_available_from"].max() <= a
 
 
 def test_stale_fy_gives_no_features(store: PitStore) -> None:
@@ -315,5 +315,36 @@ def test_raw_winsorized_is_per_anchor_and_keeps_nan() -> None:
 def test_leakage_error_is_raised_for_future_inputs(store: PitStore) -> None:
     """The final assertion in build_fundamental fires if an input row were ever later than the anchor."""
     f = build_fundamental(store.as_of(A), members(), REG)
-    assert f["feature_available_from"].max() <= pd.Timestamp(A)
+    assert f["feature_available_from"].max() <= A
     assert issubclass(LeakageError, AssertionError)
+
+
+def test_other_feature_files_do_not_leak_into_the_fundamental_builder(tmp_path: Path, store: PitStore) -> None:
+    """P3 / PT2 add their own features_*.yaml: their columns must not appear in, or dilute, the fundamental output."""
+    import shutil
+
+    shutil.copy(REPO_ROOT / "config" / "features_fundamental.yaml", tmp_path / "features_fundamental.yaml")
+    (tmp_path / "features_tech.yaml").write_text(
+        "features:\n  mom_12_1: {family: mom, prior: 1, kind: cross_sectional, category: momentum, set: core}\n"
+        "  vix_in: {family: vix, prior: null, kind: broadcast, category: regime, set: core}\n"
+    )
+    both = load_registry(tmp_path)
+    assert "mom_12_1" in both.features
+    assert both.broadcast_cols() == frozenset({"vix_in"})
+    a = build_fundamental(store.as_of(A), members(), REG)
+    b = build_fundamental(store.as_of(A), members(), both)
+    pd.testing.assert_frame_equal(a, b, check_exact=True)
+    assert "mom_12_1" not in b.columns
+
+
+def test_conflicting_cleaning_keys_across_files_raise(tmp_path: Path) -> None:
+    (tmp_path / "features_a.yaml").write_text("cleaning: {max_fy_age_days: 730}\nfeatures: {}\n")
+    (tmp_path / "features_b.yaml").write_text("cleaning: {max_fy_age_days: 365}\nfeatures: {}\n")
+    with pytest.raises(RegistryError, match="cleaning key"):
+        load_registry(tmp_path)
+
+
+def test_output_anchor_is_a_python_date(store: PitStore) -> None:
+    f = build_fundamental(store.as_of(A), members(), REG)
+    assert isinstance(f["anchor"].iloc[0], date)
+    assert not isinstance(f["anchor"].iloc[0], pd.Timestamp)

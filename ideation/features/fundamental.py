@@ -40,6 +40,7 @@ from ideation.pit.contract import LeakageError
 if TYPE_CHECKING:
     from ideation.pit.contract import PitView
 
+SOURCE = "features_fundamental.yaml"
 HISTORY_YEARS = 8  # panel window; the longest definition (eps_g5 / rev_g5) needs 6 FYs
 IDENTITY_COLS = (
     "anchor", "security_id", "company_id", "sector", "industry_group", "layout", "basis", "fy_end", "fy_age_days",
@@ -49,9 +50,10 @@ FLAG_COLS = ("neg_ebitda", "growth_flag")
 META_COLS = ("feature_complete", "c_i", "n_feat_applicable", "feature_available_from")
 
 
-def metric_ids(reg: Registry, metric: pd.DataFrame) -> dict[str, int]:
-    """alias → metric_id, validated against the catalog (exactly one id per section/name)."""
-    return reg.validate_metrics(metric)
+def metric_ids(reg: Registry, metric: pd.DataFrame, source: str = SOURCE) -> dict[str, int]:
+    """alias → metric_id for the lines this file's features use, validated against the catalog."""
+    used = {a for n in reg.names(source=source) for a in reg.features[n].lines}
+    return {a: i for a, i in reg.validate_metrics(metric).items() if a in used}
 
 
 def feasible_fy(anchor: date, first_fy_end: date) -> int:
@@ -205,7 +207,7 @@ def build_fundamental(
     m = members[members["company_id"].notna()].copy()
     m["company_id"] = m["company_id"].astype("int64")
     m = m.sort_values("security_id", kind="stable").reset_index(drop=True)
-    ids = ids or metric_ids(reg, view.metric())
+    ids = ids or metric_ids(reg, view.metric(), SOURCE)
     p = _panel(view, ids, m["company_id"].unique(), HISTORY_YEARS)
     listing = _listing_dates(view)
     d = _fy_features(p, listing, reg)
@@ -230,19 +232,20 @@ def build_fundamental(
     out = _valuation(out, reg)
     out = _apply_layouts(out, reg, stale | out["pe"].isna())
     out = _completeness(out, reg, anchor)
-    out["anchor"] = pd.Timestamp(anchor)
-    cols = [*IDENTITY_COLS, *reg.names(), *FLAG_COLS, *META_COLS]
+    out["anchor"] = anchor
+    cols = [*IDENTITY_COLS, *reg.names(source=SOURCE), *FLAG_COLS, *META_COLS]
     out = out.reindex(columns=cols)
     mx = out["feature_available_from"].max()
     if pd.notna(mx) and mx > pd.Timestamp(anchor):
         raise LeakageError(f"fundamental features: feature_available_from {mx} > anchor {anchor}")
+    for c in ("fy_end", "feature_available_from"):  # python dates, like universe_member / labels (date32 in parquet)
+        out[c] = out[c].map(lambda x: None if pd.isna(x) else x.date()).astype(object)
     return out.sort_values("security_id", kind="stable").reset_index(drop=True)
 
 
 def _valuation(o: pd.DataFrame, reg: Registry) -> pd.DataFrame:
     """Yield-form valuation columns from ``mcap_cr`` and the current-FY lines; leverage; size."""
     mc = o["mcap_cr"].where(o["mcap_cr"] > 0)
-    rev = o["revenue"].where(o["_fin"] == 1, o["sales"])
     ev = mc + o["borr"] - o["cash"] + o["nci"].fillna(0.0)
     o["sp"] = o["sales"] / mc
     o["ep"] = o["np_eps"] / mc
@@ -254,15 +257,15 @@ def _valuation(o: pd.DataFrame, reg: Registry) -> pd.DataFrame:
     ok = o["op"] > 0
     o["nd_ebitda"] = (nd / o["op"]).where(ok)
     o["neg_ebitda"] = ((~ok) & (nd > 0) & o["op"].notna()).astype(float)
-    core_rows = o["_fin"] != 1
-    p99 = o.loc[ok & core_rows, "nd_ebitda"].quantile(0.99)
+    fresh = o["fy_age_days"] <= int(reg.cleaning["max_fy_age_days"])
+    p99 = o.loc[ok & (o["layout"] == "core") & fresh, "nd_ebitda"].quantile(0.99)
     o["nd_ebitda"] = o["nd_ebitda"].where(~(o["neg_ebitda"] == 1), p99)
-    o["_rev_cur"] = rev
     return o
 
 
 def _apply_layouts(o: pd.DataFrame, reg: Registry, dead: pd.Series) -> pd.DataFrame:
-    for name, f in reg.features.items():
+    for name in reg.names(source=SOURCE):
+        f = reg.features[name]
         ok = o["layout"].isin(f.layouts) & ~dead
         o[name] = o[name].where(ok) if name in o else np.nan
     # a FY older than max_fy_age_days (or no FY) gives no features and no flags
@@ -276,7 +279,8 @@ def _completeness(o: pd.DataFrame, reg: Registry, anchor: date) -> pd.DataFrame:
     horizon = feasible_fy(anchor, reg.cleaning["fy_data_start"])
     num = pd.Series(0.0, index=o.index)
     den = pd.Series(0.0, index=o.index)
-    for name, f in reg.features.items():
+    for name in reg.names(source=SOURCE):
+        f = reg.features[name]
         if not f.complete or f.need_fy > horizon:
             continue
         app = o["layout"].isin(f.layouts)

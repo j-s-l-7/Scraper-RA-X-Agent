@@ -31,7 +31,7 @@ def build_cmd(
 ) -> None:
     """Build fundamental features (and feature_complete / c_i) for the anchors."""
     from ideation.db.writer import Writer
-    from ideation.features.build import build_all, features_path
+    from ideation.features.build import build_all, coverage_path, features_path
     from ideation.features.registry import load_registry
     from ideation.logs import setup_logging
     from ideation.runs import RunRegistry
@@ -54,24 +54,35 @@ def build_cmd(
             if run.skipped:
                 console.print(f"skipped: identical run {run.record.stats} already ok (use --force)")
                 return
-            feats, records = build_all(store, reg, ucfg, anchor_list)
+            feats, records, cov = build_all(store, reg, ucfg, anchor_list)
             out = features_path(settings.data_dir, store.snap_id)
             out.parent.mkdir(parents=True, exist_ok=True)
             feats.to_parquet(out, index=False)
+            cov.to_parquet(coverage_path(settings.data_dir, store.snap_id), index=False)
             conn.execute("delete from ideation.run_manifest where run_id = %s", (run.run_id,))
             conn.copy_rows(
                 "ideation.run_manifest",
                 ["run_id", "anchor", "item", "n_rows", "sha256", "max_available_from"],
                 ((run.run_id, *r) for r in records_to_rows(records)),
             )
+            run.stats["coverage"] = [
+                {k: (None if pd.isna(v) else (str(v) if k == "anchor" else v)) for k, v in r.items()}
+                for r in cov.to_dict("records")
+            ]
             run.stats.update({"anchors": len(anchor_list), "rows": len(feats),
                               "seconds": round(time.perf_counter() - t0, 1)})  # fmt: skip
-    t = Table(
-        "anchor", "rows", "mean feature_complete", "share >= 0.6", title=f"fundamental features ({store.snap_id})"
-    )
-    for a, g in feats.groupby("anchor"):
-        fc = g["feature_complete"]
-        t.add_row(str(pd.Timestamp(a).date()), str(len(g)), f"{fc.mean():.3f}", f"{(fc >= 0.6).mean():.3f}")
+    cols = ["anchor", "U_score before", "after hook", "dropped", "fin", "mean fc", "roe", "ep", "ebitda_ev",
+            "fcf_yield", "roic", "rev_g1", "roe_3y", "eps_g3", "nd_ebitda"]  # fmt: skip
+    t = Table(*cols, title=f"U_score with the hook ({store.snap_id})")
+
+    def pct(v: float | None) -> str:
+        return "n/a" if v is None or pd.isna(v) else f"{v * 100:.0f}%"
+
+    for r in cov[cov["anchor"].map(lambda d: d.month in (3, 6))].itertuples():
+        fc = "n/a" if pd.isna(r.feature_complete_mean) else f"{r.feature_complete_mean:.3f}"
+        t.add_row(str(r.anchor), str(r.u_score_before), str(r.u_score_after), str(r.dropped), str(r.n_financial), fc,
+                  *(pct(getattr(r, n)) for n in ("roe", "ep", "ebitda_ev", "fcf_yield", "roic", "rev_g1", "roe_3y",
+                                                 "eps_g3", "nd_ebitda")))  # fmt: skip
     console.print(t)
     console.print(f"[green]features built[/green]: {len(anchor_list)} anchors, {len(feats)} rows,"
                   f" {time.perf_counter() - t0:.1f} s -> {out}")  # fmt: skip

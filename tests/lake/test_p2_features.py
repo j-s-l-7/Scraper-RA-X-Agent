@@ -251,6 +251,15 @@ RAW: dict[tuple[int, str], tuple[str, str, float, float, float, float]] = {
 _CACHE: dict[tuple[str, date], pd.DataFrame] = {}
 
 
+@pytest.fixture(scope="module")
+def golden_store(settings) -> PitStore:
+    """The snapshot the golden values were derived from, whatever ``PitStore.latest`` is by now."""
+    d = settings.data_dir / "snapshots" / SNAP
+    if not (d / "manifest.json").is_file():
+        pytest.skip(f"pinned golden snapshot {SNAP} is not on disk")
+    return PitStore(d)
+
+
 def features(store: PitStore, a: date, tag: str = "clean") -> pd.DataFrame:
     key = (tag + store.snap_id, a)
     if key not in _CACHE:
@@ -265,8 +274,8 @@ def test_registry_resolves_against_live_catalog(pit_store: PitStore) -> None:
 
 
 @pytest.mark.parametrize(("cid", "anchor"), sorted(GOLDEN))
-def test_golden_values_from_raw_rows(pit_store: PitStore, cid: int, anchor: str) -> None:
-    assert pit_store.snap_id == SNAP, "golden values are pinned to snapshot " + SNAP
+def test_golden_values_from_raw_rows(golden_store: PitStore, cid: int, anchor: str) -> None:
+    pit_store = golden_store
     a = date.fromisoformat(anchor)
     # 1. the raw rows the numbers were derived from are still what the snapshot holds
     ff = pd.read_parquet(pit_store.snapshot_dir / "financial_fact.parquet")
@@ -282,14 +291,14 @@ def test_golden_values_from_raw_rows(pit_store: PitStore, cid: int, anchor: str)
     row = features(pit_store, a).set_index("company_id").loc[cid]
     exp = dict(GOLDEN[(cid, anchor)])
     assert row["layout"] == exp.pop("layout")
-    assert str(row["fy_end"].date()) == exp.pop("fy_end")
+    assert str(row["fy_end"]) == exp.pop("fy_end")
     for k, v in exp.items():
         got = row["mcap_cr"] if k == "mcap" else row[k]
         if v is None:
             assert np.isnan(got), k
         else:
             assert got == pytest.approx(v, rel=RTOL), (cid, anchor, k)
-    assert row["feature_available_from"] <= pd.Timestamp(a)
+    assert row["feature_available_from"] <= a
 
 
 @pytest.mark.parametrize("mode", ["inflate", "nan", "shuffle"])
@@ -334,8 +343,8 @@ def test_late_filer_enters_on_its_available_from_session(pit_store: PitStore) ->
     fb = features(pit_store, before).set_index("company_id")
     fa = features(pit_store, after).set_index("company_id")
     if cid in fb.index:
-        assert fb.loc[cid, "fy_end"].date() < pe
-    assert fa.loc[cid, "fy_end"].date() == pe
+        assert fb.loc[cid, "fy_end"] < pe
+    assert fa.loc[cid, "fy_end"] == pe
 
 
 def test_u_score_hook_matches_feature_complete(pit_store: PitStore) -> None:
@@ -349,3 +358,29 @@ def test_u_score_hook_matches_feature_complete(pit_store: PitStore) -> None:
     assert len(dropped) > 0
     assert (dropped["feature_complete"] < 0.6).all()
     assert not (mem["in_u_score"] & (mem["feature_complete"] < 0.6)).any()
+
+
+def test_output_dtypes_join_with_universe_and_labels(pit_store: PitStore) -> None:
+    """anchor / fy_end / feature_available_from are python dates (date32 in parquet), like universe_member."""
+    f = features(pit_store, date(2019, 6, 28))
+    assert isinstance(f["anchor"].iloc[0], date)
+    assert f["anchor"].iloc[0] == date(2019, 6, 28)
+    assert isinstance(f["fy_end"].dropna().iloc[0], date)
+    assert isinstance(f["feature_available_from"].dropna().iloc[0], date)
+    assert str(f["security_id"].dtype) == "int64"
+    assert str(f["company_id"].dtype) == "int64"
+
+
+def test_coverage_row_matches_the_hook(pit_store: PitStore) -> None:
+    from ideation.features.build import coverage_row
+
+    a = date(2022, 6, 30)
+    f = features(pit_store, a)
+    mem, _ = build_universe(pit_store.as_of(a, record=False), UCFG)
+    cov = coverage_row(a, mem, f, REG, UCFG)
+    hooked, _ = build_universe(
+        pit_store.as_of(a, record=False), UCFG, feature_complete=f.set_index("security_id")["feature_complete"]
+    )
+    assert cov["u_score_before"] == int(mem["in_u_score"].sum())
+    assert cov["u_score_after"] == int(hooked["in_u_score"].sum())
+    assert cov["dropped"] == cov["u_score_before"] - cov["u_score_after"]

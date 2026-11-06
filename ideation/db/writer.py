@@ -16,7 +16,7 @@ writes elsewhere is caught too.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -190,6 +190,21 @@ class GuardedConnection:
         guard(self._text(query))
         with self._conn.cursor() as cur:
             cur.executemany(query, params_seq)
+
+    def copy_rows(self, table: str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> int:
+        """``COPY <table> (<columns>) FROM STDIN`` (fast bulk load). The statement passes :func:`guard`, so the
+        target must be ``ideation.*``; identifiers are quoted by psycopg."""
+        schema, _, name = table.partition(".")
+        stmt = pgsql.SQL("copy {}.{} ({}) from stdin").format(
+            pgsql.Identifier(schema), pgsql.Identifier(name), pgsql.SQL(", ").join(map(pgsql.Identifier, columns))
+        )
+        guard(self._text(stmt))
+        n = 0
+        with self._conn.cursor() as cur, cur.copy(stmt) as cp:
+            for r in rows:
+                cp.write_row(r)
+                n += 1
+        return n
 
     def transaction(self, *, force_rollback: bool = False) -> psycopg.Transaction:
         return self._conn.transaction(force_rollback=force_rollback)

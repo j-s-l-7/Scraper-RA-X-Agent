@@ -124,6 +124,30 @@ class PitStore:
         manifest = self.snapshot_dir / "manifest.json"
         self.manifest: dict[str, Any] = json.loads(manifest.read_text()) if manifest.is_file() else {}
 
+    @classmethod
+    def latest(cls, data_dir: Path, **kwargs: Any) -> PitStore:
+        """The most recent finished snapshot under ``data_dir/snapshots`` (by observation date, then mtime)."""
+        root = Path(data_dir) / "snapshots"
+        found = []
+        for d in root.iterdir() if root.is_dir() else []:
+            m = d / "manifest.json"
+            if (
+                d.is_dir()
+                and not d.name.startswith(".")
+                and m.is_file()
+                and (d / "derived" / "manifest.json").is_file()
+            ):
+                found.append((json.loads(m.read_text())["observation_date"], m.stat().st_mtime, d))
+        if not found:
+            raise FileNotFoundError(f"no finished snapshot under {root}; run `ideation snapshot --full`")
+        return cls(max(found)[2], **kwargs)
+
+    def derived_sha(self) -> str:
+        """Content id of the derived datasets (they change with code even when the raw snapshot does not)."""
+        m = self.snapshot_dir / "derived" / "manifest.json"
+        files = json.loads(m.read_text())["files"] if m.is_file() else {}
+        return hashlib.sha256(json.dumps({k: v["sha256"] for k, v in sorted(files.items())}).encode()).hexdigest()[:12]
+
     @property
     def snap_id(self) -> str:
         return str(self.manifest.get("snap_id", self.snapshot_dir.name))

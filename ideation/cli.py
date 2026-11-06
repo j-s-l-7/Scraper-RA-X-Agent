@@ -10,12 +10,23 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ideation.config import Settings, get_settings, redact_dsn
+from ideation.config import Settings, get_settings, load_methodology, redact_dsn
 from ideation.logs import setup_logging
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Indian-equity investment-ideation system.")
 runs_app = typer.Typer(no_args_is_help=True, help="Run registry inspection.")
 app.add_typer(runs_app, name="runs")
+
+
+def _register_subapps() -> None:
+    from ideation.labels.cli import app as labels_app
+    from ideation.universe.cli import app as universe_app
+
+    app.add_typer(universe_app, name="universe")
+    app.add_typer(labels_app, name="labels")
+
+
+_register_subapps()
 
 console = Console()
 log = logging.getLogger("ideation.cli")
@@ -71,6 +82,98 @@ def init_db_cmd(
         console.print(f"pending: {list(result.pending) or 'none'}; already applied: {list(result.already)}")
     else:
         console.print(f"applied: {list(result.applied) or 'none'}; already applied: {list(result.already)}")
+
+
+@app.command()
+def snapshot(
+    full: Annotated[
+        bool, typer.Option("--full/--delta", help="Full pull, or incremental bhav/yf over the last.")
+    ] = True,
+    force: Annotated[bool, typer.Option("--force", help="Re-run even if the lake state is unchanged.")] = False,
+) -> None:
+    """Snapshot the lake to parquet (one REPEATABLE READ READ ONLY transaction) + derived calendar/stitching."""
+    import time
+
+    from ideation.db.writer import Writer
+    from ideation.lake.adapter import LakeMode, LakeReader
+    from ideation.lake.snapshot import build_derived, fetch_lake_state, register_snapshot, take_snapshot
+    from ideation.runs import RunRegistry, git_sha
+
+    settings = _init()
+    meth = load_methodology()
+    reader = LakeReader.from_settings(settings, LakeMode.SNAPSHOT)
+    reader.statement_timeout_s = max(reader.statement_timeout_s, 900)
+    state = fetch_lake_state(reader)
+    t0 = time.perf_counter()
+    with Writer.from_settings(settings).connect() as conn:
+        reg = RunRegistry(conn)
+        params = {"mode": "full" if full else "delta", "lake_state": {k: str(v) for k, v in state.items()}}
+        with reg.track("snapshot", config_hash=meth.config_hash, as_of=state["max_bhav"], params=params,
+                       force=force) as run:  # fmt: skip
+            if run.skipped:
+                console.print(f"skipped: lake unchanged since run {run.record.stats} (use --force)")
+                return
+            sha = git_sha()
+            res = take_snapshot(reader, settings.data_dir, git_sha=sha, config_hash=meth.config_hash, delta=not full)
+            t_pull = time.perf_counter() - t0
+            derived = build_derived(res.path, git_sha=sha)
+            register_snapshot(conn, run.run_id, res, derived)
+            run.stats.update(
+                {
+                    "snap_id": res.snap_id, "reused": res.reused, "pull_finalise_s": round(t_pull, 1),
+                    "derived_s": derived["build_s"], "total_s": round(time.perf_counter() - t0, 1),
+                }
+            )  # fmt: skip
+    st = derived["stats"]
+    table = Table("dataset", "rows", "max available_from")
+    for name, d in res.manifest["datasets"].items():
+        table.add_row(name, f"{d['rows']:,}", d["max_available_from"])
+    console.print(table)
+    console.print(
+        f"[green]snapshot {res.snap_id}[/green] ({'reused' if res.reused else 'new'}) in {res.path}; "
+        f"securities {st['stitch']['securities']}, with company {st['stitch']['securities_with_company']}; "
+        f"bhav-missing sessions {len(st['calendar']['bhav_missing'])}; {time.perf_counter() - t0:.1f} s"
+    )
+
+
+@app.command()
+def coverage(
+    anchors: Annotated[str, typer.Option(help="june (default), march, monthly or dates.")] = "june",
+) -> None:
+    """Per-anchor universe coverage (U_score / ₹0.5 cr / U_score_T / U1000) and the 02 §0.1 reproduction."""
+    from ideation.db.writer import Writer
+    from ideation.pit.calendar import parse_anchors
+    from ideation.pit.contract import PitStore
+
+    settings = _init()
+    store = PitStore.latest(settings.data_dir)
+    want = parse_anchors(store.calendar, anchors)
+    with Writer.from_settings(settings).connect() as conn:
+        rows = conn.execute(
+            "select anchor, n_traded, n_u1000, n_u_score, n_u_score_adv05, n_u_score_t, n_no_company, n_thin_trading,"
+            " n_adv_below_floor, n_too_new, n_mcap_unknown, n_mcap_below_floor_100, scorable_share_top500,"
+            " scorable_share_top1000, extra from ideation.universe_coverage where anchor = any(%s) order by anchor",
+            (want,),
+        ).fetchall()
+    table = Table("anchor", "traded", "U1000", "U_score", "≥₹0.5cr", "U_score_T", "no_co", "thin", "adv<0.2",
+                  "new", "mcap?", "mcap<100", "U_score∩U500", "U_score∩U1000",
+                  title=f"universe coverage (snapshot {store.snap_id})")  # fmt: skip
+    repro = []
+    for r in rows:
+        table.add_row(str(r[0]), *[str(x) for x in r[1:12]], f"{r[12]:.1%}", f"{r[13]:.1%}")
+        if r[14] and "coverage_02" in r[14]:
+            repro.append(r[14]["coverage_02"])
+    console.print(table)
+    if repro:
+        t2 = Table("anchor", "traded", "top500 fund", "top1000 fund", "all fund", "Δpp vs 02 §0.1 (02 map)",
+                   "Δpp (stitched)", title="02 §0.1 reproduction (trailing-90d turnover, 02 definition)")  # fmt: skip
+        for c in repro:
+            t2.add_row(c["anchor"], str(c["n_traded"]), f"{c['top500_fund_02map']:.1%}",
+                       f"{c['top1000_fund_02map']:.1%}", f"{c['all_fund_02map']:.1%}", str(c.get("delta_pp_02map")),
+                       str(c.get("delta_pp_stitched")))  # fmt: skip
+        console.print(t2)
+    if not rows:
+        console.print("no coverage rows for these anchors; run `ideation universe build` first")
 
 
 @app.command()

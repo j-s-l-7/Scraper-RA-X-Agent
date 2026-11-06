@@ -561,3 +561,35 @@ def build_derived(snapshot_dir: Path, *, git_sha: str | None = None) -> dict[str
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
+
+
+def register_snapshot(conn: Any, run_id: int, res: SnapshotResult, derived: dict[str, Any]) -> None:
+    """``ideation.snapshot`` row (upsert) and the derived calendar + security_map tables (replaced)."""
+    from psycopg.types.json import Jsonb
+
+    m = res.manifest
+    with conn.transaction():
+        conn.execute(
+            "insert into ideation.snapshot (snap_id, run_id, lake_max_bhav, lake_max_fact_ts, manifest, path)"
+            " values (%s, %s, %s, %s, %s, %s) on conflict (snap_id) do update set run_id = excluded.run_id,"
+            " manifest = excluded.manifest, path = excluded.path",
+            (
+                res.snap_id, run_id, m["lake_state"]["max_bhav"], m["lake_state"]["max_fact_ts"],
+                Jsonb(json.loads(json.dumps({**m, "derived": derived}, default=str))), str(res.path),
+            ),
+        )  # fmt: skip
+        cal = load(res.path / DERIVED_DIR, "calendar", ["session", "in_bhav", "in_index"])
+        conn.execute("delete from ideation.calendar")
+        conn.copy_rows(
+            "ideation.calendar", ["session", "in_bhav", "in_index", "run_id"],
+            ((r.session, bool(r.in_bhav), bool(r.in_index), run_id) for r in cal.itertuples(index=False)),
+        )  # fmt: skip
+        sm = load(res.path / DERIVED_DIR, "security_map")
+        cols = ["security_id", "symbol", "isin", "valid_from", "valid_to", "company_id", "link_method",
+                "company_link", "series_last"]  # fmt: skip
+        conn.execute("delete from ideation.security_map")
+        conn.copy_rows(
+            "ideation.security_map", [*cols, "run_id"],
+            ((*(None if pd.isna(v) else (int(v) if c == "company_id" else v) for c, v in zip(cols, r, strict=True)),
+              run_id) for r in sm[cols].itertuples(index=False)),
+        )  # fmt: skip

@@ -118,3 +118,32 @@ class TradingCalendar:
             self.snap_anchor((pd.Timestamp(year=y, month=month, day=1) + pd.offsets.MonthEnd(0)).date())
             for y in range(first_year, last_year + 1)
         ]
+
+
+FIRST_MONTHLY_ANCHOR = date(2010, 4, 1)
+"""The first month-end with 63 bhav sessions behind it (bhav starts 2010-01-04)."""
+
+
+def parse_anchors(cal: TradingCalendar, spec: str) -> list[date]:
+    """``june``, ``march``, ``monthly`` (every month-end with a full 63-session window, up to the last complete
+    month) and/or explicit ``YYYY-MM-DD`` dates, comma-separated. Every anchor is snapped to a good session."""
+    last = cal.good[-1].astype(object)
+    out: set[date] = set()
+    month_ends = [
+        cal.snap_anchor(me.date())
+        for me in pd.date_range(pd.Timestamp(FIRST_MONTHLY_ANCHOR), pd.Timestamp(last), freq="ME")
+        if me.date() <= last
+    ]
+    for tok in (t.strip() for t in spec.split(",") if t.strip()):
+        if tok == "monthly":
+            out.update(month_ends)
+        elif tok in ("june", "march"):
+            m = 6 if tok == "june" else 3
+            out.update(
+                cal.snap_anchor((pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0)).date())
+                for y in range(FIRST_MONTHLY_ANCHOR.year, last.year + 1)
+                if (pd.Timestamp(year=y, month=m, day=1) + pd.offsets.MonthEnd(0)).date() <= last
+            )
+        else:
+            out.add(cal.snap_anchor(date.fromisoformat(tok)))
+    return sorted(out)

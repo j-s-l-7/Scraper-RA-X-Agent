@@ -190,6 +190,8 @@ def summarize(mem: pd.DataFrame, anchor: date, traded_on_a: set[int], cfg: Unive
         "share_with_fund_top500": float(with_fund[mem["in_u500"]].mean()) if len(u500) else None,
         "share_with_fund_top1000": float(with_fund[mem["in_u1000"]].mean()) if len(u1000) else None,
         "share_u_score_in_u1000": float(u1000["in_u_score"].mean()) if len(u1000) else None,
+        "share_u_score_in_u500": float(u500["in_u_score"].mean()) if len(u500) else None,
+        "u1000_mcap_below_500": int((u1000["mcap_pit_cr"] < cfg["mcap_floor_cr"]).sum()),
         "adv_marginal_lakh": float(u1000["adv63_lakh"].min()) if len(u1000) else None,
         "mcap_marginal_cr": float(us["mcap_pit_cr"].min()) if len(us) else None,
         "mcap_src_u_score": {k: int(v) for k, v in us["mcap_src"].value_counts().items()},

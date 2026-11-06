@@ -10,7 +10,7 @@ Everything is annual-only (03 §B3). Per anchor A:
   switch, a layout change or a period gap other than 12 months is NaN. A balance-sheet average ``avg(X)`` falls back
   to ``X_t`` in the same situations (no cross-basis arithmetic).
 * **Valuation (03 §C2).** ``mcap_pit_cr`` comes from the universe member frame (hierarchy A → B1 → B2), never from
-  ``historical_prices.close`` and never from price × EPS (03 §B4). ``ebitda_ev = OP / (mcap + Borrowings − Cash +
+  a vendor price table and never from price × EPS (03 §B4). ``ebitda_ev = OP / (mcap + Borrowings − Cash +
   NCI)``; non-positive EV or mcap gives NaN.
 * **Growth rule (03 §C7 / 02 §4.1).** Growth needs the prior FY, a positive base (EPS: ``max(|EPS_{t-1}|, 0.5)``) and
   is NaN for FYs ending within 12 months after the stitched listing date. A listing date equal to the first bhav
@@ -20,7 +20,7 @@ Everything is annual-only (03 §B3). Per anchor A:
 * **Layouts (F10).** ``fin_layout``: Revenue and Financing Profit both present for the current FY. ``fin_other``: sector
   = Financial Services and not fin_layout (today's sector label: disclosed residual bias). Columns not applicable to
   the layout are NaN here; ``transform.na_layout_frame`` marks them for R1.
-* **Completeness.** ``feature_complete`` = share of non-missing *applicable, complete-flagged core* features whose
+* **Coverage.** ``feature_complete`` = share of non-missing *applicable, complete-flagged core* features whose
   history need fits the data horizon at A (``need_fy`` ≤ number of broad FYs available by A, 02 §4.1). A name that
   lacks history that other names have counts as missing. ``c_i`` (02 §1.4) = ``feature_complete × min(1, FYs
   available / 3)``.

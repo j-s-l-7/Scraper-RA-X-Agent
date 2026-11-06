@@ -73,7 +73,7 @@ features:
   eps_g5:     {family: eps_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core, fin_layout, fin_other], set: shown, growth: true, need_fy: 6, lines: [eps]}
   dep_g1:     {family: bs_g, prior: 1,  kind: cross_sectional, category: growth, layouts: [fin_layout], set: core, growth: true, complete: false, need_fy: 2, lines: [deposits]}
   ta_g1:      {family: bs_g, prior: 1,  kind: cross_sectional, category: growth, layouts: [fin_layout, fin_other], set: core, growth: true, need_fy: 2, lines: [ta]}
-  # ── valuation (yield form; mcap_pit per 03 §C2, never historical_prices.close) ──────────────────────────────
+  # ── valuation (yield form; mcap_pit per 03 §C2, never a vendor close) ──────────────────────────────
   sp:         {family: sp,  prior: 1, kind: cross_sectional, category: valuation, layouts: [core], set: core, growth: false, need_fy: 1, lines: [sales]}
   ep:         {family: ep,  prior: 1, kind: cross_sectional, category: valuation, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [np_eps]}
   ebitda_ev:  {family: ebitda_ev, prior: 1, kind: cross_sectional, category: valuation, layouts: [core], set: core, growth: false, need_fy: 1, lines: [op, borr, cash, nci]}

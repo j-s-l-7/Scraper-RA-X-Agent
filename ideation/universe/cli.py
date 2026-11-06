@@ -4,6 +4,7 @@ writes ``IDEATION_DATA_DIR/outputs/<snap_id>/universe_*.parquet`` and ``ideation
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sys
 import time
@@ -48,12 +49,29 @@ def _py(v: Any) -> Any:
     return v
 
 
-def build_all(store: PitStore, cfg: UniverseConfig, anchors: list[date]) -> tuple[pd.DataFrame, list[dict], list]:
+def load_feature_complete(path: Path) -> dict[date, pd.Series]:
+    """``feature_complete`` by anchor, indexed by ``security_id``, from ``ideation features build`` (P2). Anchors
+    without features get no entry, so ``features_incomplete`` (05 §1.1) is only applied where features exist."""
+    if not path.is_file():
+        return {}
+    df = pd.read_parquet(path, columns=["anchor", "security_id", "feature_complete"])
+    df["anchor"] = pd.to_datetime(df["anchor"]).dt.date
+    return {a: g.set_index("security_id")["feature_complete"] for a, g in df.groupby("anchor")}
+
+
+def file_sha(path: Path) -> str | None:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.is_file() else None
+
+
+def build_all(
+    store: PitStore, cfg: UniverseConfig, anchors: list[date], feature_complete: dict[date, pd.Series] | None = None
+) -> tuple[pd.DataFrame, list[dict], list]:
     members, covs, records = [], [], []
+    feature_complete = feature_complete or {}
     ref_anchors = {date.fromisoformat(a) for a in REFERENCE_02}
     for a in anchors:
         view = store.as_of(a)
-        mem, cov = build_universe(view, cfg)
+        mem, cov = build_universe(view, cfg, feature_complete=feature_complete.get(a))
         if a in ref_anchors:
             cov["coverage_02"] = coverage_02(store, a, cfg.raw)
         members.append(mem)
@@ -128,20 +146,24 @@ def build_cmd(
     t0 = time.perf_counter()
     with Writer.from_settings(settings).connect() as conn:
         reg = RunRegistry(conn)
-        params = {"anchors": anchors, "n_anchors": len(anchor_list), "derived": store.derived_sha()}
+        feat_file = outputs_dir(settings.data_dir, store.snap_id) / "features_fundamental.parquet"
+        params = {"anchors": anchors, "n_anchors": len(anchor_list), "derived": store.derived_sha(),
+                  "features": file_sha(feat_file)}  # fmt: skip
         with reg.track("universe", config_hash=meth.config_hash, snap_id=store.snap_id, params=params,
                        force=force) as run:  # fmt: skip
             if run.skipped:
                 console.print(f"skipped: identical run {run.record.stats} already ok (use --force)")
                 return
-            members, covs, records = build_all(store, cfg, anchor_list)
+            fc = load_feature_complete(feat_file)
+            members, covs, records = build_all(store, cfg, anchor_list, fc)
             out = outputs_dir(settings.data_dir, store.snap_id)
             members.to_parquet(out / "universe_member.parquet", index=False)
             pd.DataFrame([{**c, "anchor": c["anchor"]} for c in covs]).assign(
                 payload=[canonical_json(c) for c in covs]
             )[["anchor", "payload"]].to_parquet(out / "universe_coverage.parquet", index=False)
             write_db(conn, run.run_id, members, covs, records)
-            run.stats.update({"anchors": len(anchor_list), "rows": len(members),
+            run.stats.update({"anchors": len(anchor_list), "rows": len(members), "anchors_with_features":
+                              sum(a in fc for a in anchor_list),
                               "seconds": round(time.perf_counter() - t0, 1)})  # fmt: skip
     june = [c for c in covs if c["anchor"].month == 6]
     console.print(coverage_table(june, f"U_score / U_score_T per June anchor (snapshot {store.snap_id})"))

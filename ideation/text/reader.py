@@ -26,7 +26,7 @@ def resolve_text_path(root: Path, text_path: str) -> Path:
     """Absolute path of ``text_path`` under ``<root>/data/documents``; raises if it would escape that directory."""
     rel = Path(text_path)
     base = documents_dir(root)
-    if rel.is_absolute() or ".." in rel.parts or tuple(rel.parts[:2]) != DOCS_SUBDIR:
+    if rel.is_absolute() or ".." in rel.parts or tuple(rel.parts[:2]) != DOCS_SUBDIR or len(rel.parts) < 3:
         raise UnsafeDocumentPathError(text_path)
     full = (Path(root).expanduser() / rel).resolve()
     if not full.is_relative_to(base.resolve()):  # symlink escape

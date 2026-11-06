@@ -153,3 +153,9 @@ def test_all_includes_untracked_but_not_ignored(temp_repo: Path) -> None:
     assert run("--all", cwd=temp_repo).returncode == 0
     (temp_repo / "new.py").write_text(f'K = "{ANT}untracked"\n')
     assert run("--all", cwd=temp_repo).returncode == 1
+
+
+def test_rendered_ranking_mechanism_is_blocked() -> None:
+    """05 O7: the filled RANKING_MECHANISM.md is a report (gitignored); only the template may be committed."""
+    assert ss.check_path("docs/RANKING_MECHANISM.md", 10)
+    assert ss.check_path("docs/RANKING_MECHANISM.template.md", 10) == []

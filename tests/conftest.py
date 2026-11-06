@@ -4,6 +4,7 @@ ideation_rw."""
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from functools import cache
 from pathlib import Path
@@ -15,6 +16,13 @@ from ideation.config import Settings, load_settings
 
 TESTS = Path(__file__).parent
 _DIR_MARKERS = {"unit": pytest.mark.unit, "leakage": pytest.mark.leakage, "lake": pytest.mark.lake}
+
+# Git hooks export repo-local variables (``git rev-parse --local-env-vars``). In a linked worktree GIT_DIR is
+# absolute, so a test running ``git -C <tmp> init/config/commit`` would act on the REAL repository: on 2026-11-06 a
+# pre-push run from wt-e1 committed onto the branch, replaced its index and set core.bare=true + user.* in the
+# shared config. Tests never need them: git finds the repo from the working directory.
+for _name in [n for n in os.environ if n.startswith("GIT_")]:
+    del os.environ[_name]
 
 
 @cache

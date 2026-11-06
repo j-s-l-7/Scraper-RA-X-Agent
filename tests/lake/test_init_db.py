@@ -44,29 +44,24 @@ def tables_in(conn: psycopg.Connection, schema: str) -> set[str]:
 
 
 def test_init_db_twice_is_idempotent(settings: Settings, rw_conn: psycopg.Connection) -> None:
-    """Re-applying the already-applied files is a no-op. Pending files are NOT applied here: only ``init-db`` on
-    ``main`` (or an explicit owner-approved run) touches the shared ledger (05 §10.1); branches test new DDL in
-    ``ddl_sandbox`` (``test_pending_migrations_in_sandbox``)."""
+    """Inside a rolled-back transaction, so a branch worktree with pending migrations never writes the real ledger
+    (05 §10.1: only main applies migrations; DDL is transactional in Postgres)."""
     migrations = discover()
-    writer = Writer.from_settings(settings)
-    with writer.connect() as conn:
-        dry = migrate(conn, migrations, dry_run=True)  # also checks drift of every applied file
-    applied = [m for m in migrations if m.version in dry.already]
-    versions = [m.version for m in applied]  # gaps are allowed (P1 003, E1 010-012; 004-009 unused)
-    assert versions == sorted(set(versions)), "applied versions must be sorted and unique"
-    assert versions[:1] == [1], "applied versions must start at 001"
-    before = fingerprint(rw_conn, "ideation")
-    with writer.connect() as conn:
-        again = migrate(conn, applied)
-    assert again.applied == ()
-    assert again.already == tuple(m.version for m in applied)
-    assert fingerprint(rw_conn, "ideation") == before
-    ledger = rw_conn.execute("select version, checksum from ideation.schema_migration order by 1").fetchall()
-    assert ledger == [(m.version, m.checksum) for m in applied]
-    if not dry.pending:
-        assert tables_in(rw_conn, "ideation") >= EXPECTED_TABLES
-    owners = {r for (k, r) in before if k == "rel"}
-    assert all(r.endswith(":ideation_rw") for r in owners)
+    ledger_sql = "select version, checksum from ideation.schema_migration order by 1"
+    real_ledger = rw_conn.execute(ledger_sql).fetchall()
+    with Writer.from_settings(settings).connect() as conn, conn.transaction(force_rollback=True):
+        migrate(conn, migrations)  # brings the schema up to date (no-op on main after init-db)
+        before = fingerprint(conn, "ideation")
+        again = migrate(conn, migrations)
+        assert again.applied == ()
+        assert again.already == tuple(m.version for m in migrations)
+        assert fingerprint(conn, "ideation") == before
+        assert tables_in(conn, "ideation") >= EXPECTED_TABLES
+        ledger = conn.execute(ledger_sql).fetchall()
+        assert ledger == [(m.version, m.checksum) for m in migrations]
+        owners = {r for (k, r) in before if k == "rel"}
+        assert all(r.endswith(":ideation_rw") for r in owners)
+    assert rw_conn.execute(ledger_sql).fetchall() == real_ledger  # nothing was committed
 
 
 def test_pending_migrations_in_sandbox(ddl_sandbox: psycopg.Connection) -> None:

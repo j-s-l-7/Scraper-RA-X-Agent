@@ -1,0 +1,93 @@
+# Pre-registered 1Y bake-off (05 §3.5 + §11 additions #49–50): family 1Y-june, N = 50.
+# `ideation trials register --family 1Y-june` inserts every entry into ideation.experiment_trial (status
+# 'registered') BEFORE any fit; `train` refuses a config hash that is not registered. The hashed config of a trial is
+# {family, horizon, defaults ⊕ the entry, and for zoo learners the fixed hyperparameters of ideation/models/zoo.py}.
+# Changing anything after the first counted run creates a NEW trial (05 header); never edit a registered entry.
+# Owner after E1: MS1.
+family: 1Y-june
+horizon: 1Y
+n_declared: 50
+
+defaults:
+  anchor_family: june            # June last session; train {T-3, T-2, T-1} after the C3 purge
+  counted_tests: [2020, 2021, 2022, 2023, 2024]
+  indicative_tests: [2019]
+  sealed: [2025]
+  universe: U_score              # ADV63 >= 0.2 cr, mcap_pit >= 100 cr (05 §1.1)
+  adv_floor_cr: 0.2
+  features: core
+  spec: global                   # R1: global rank-gauss | industry z with sign flips | hybrid (global ⊕ industry)
+  growth_mode: winsor            # winsor | dossier_median (03 §C6)
+  train_window: {kind: rolling, n: 3}
+  target: rank_gauss_ret_total
+  ninety_ten_sec: false          # 90/10 reading (a), 05 §11
+
+consensus_members: [RF_GLOBAL, PRIDGE_GLOBAL, RIDGE_GLOBAL, LGBM_GLOBAL, XGB_GLOBAL, MLP_GLOBAL, SVR_GLOBAL,
+                    OLS_GLOBAL, SCR_GLOBAL, P1_COMP_DOSSIER]
+
+trials:
+  # Phase-I linear family (05 §3.4)
+  - {num: 1, id: P1_UNIFIED, model: p1_unified, input: raw_winsorized}
+  - {num: 2, id: P1_UNIFIED_XS, model: p1_unified_xs}
+  - {num: 3, id: P1_COMP_DOSSIER, model: p1_comp_dossier}
+  - {num: 4, id: P1_COMP_EW, model: p1_comp_ew, role: gate3_baseline}
+  - {num: 5, id: P1_INDUSTRY_WF, model: p1_industry_wf, params: {k: 4, min_group: 8}}
+  - {num: 6, id: P1_WFO_3Y, model: p1_wfo_scr, params: {alpha: 10.0, p_max: 0.05, vif_max: 5.0}}
+  - {num: 7, id: P1_WFO_2Y, model: p1_wfo_scr, params: {alpha: 10.0, p_max: 0.05, vif_max: 5.0},
+     train_window: {kind: rolling, n: 2}}
+  - {num: 8, id: P1_FINAL_WFO, model: p1_final_wfo, params: {alpha: 10.0, cols: [ebitda_ev, sp, fcf_yield]}}
+  - {num: 9, id: P1_POSTCOVID, model: p1_final_wfo, params: {alpha: 10.0, cols: [sp, ebitda_ev, fcf_yield]},
+     train_window: {kind: expanding, start: 2020-06-01}, counted_tests: [2023, 2024], indicative_tests: []}
+  # Linear baselines on the full matrix
+  - {num: 10, id: OLS_GLOBAL, learner: ols}
+  - {num: 11, id: SCR_GLOBAL, learner: scr}
+  # 12–32: {RF, PRIDGE, RIDGE, LGBM, XGB, MLP, SVR} × {GLOBAL, INDUSTRY, HYBRID}
+  - {num: 12, id: RF_GLOBAL, learner: rf, spec: global}
+  - {num: 13, id: RF_INDUSTRY, learner: rf, spec: industry}
+  - {num: 14, id: RF_HYBRID, learner: rf, spec: hybrid}
+  - {num: 15, id: PRIDGE_GLOBAL, learner: pridge, spec: global}
+  - {num: 16, id: PRIDGE_INDUSTRY, learner: pridge, spec: industry}
+  - {num: 17, id: PRIDGE_HYBRID, learner: pridge, spec: hybrid}
+  - {num: 18, id: RIDGE_GLOBAL, learner: ridge, spec: global}
+  - {num: 19, id: RIDGE_INDUSTRY, learner: ridge, spec: industry}
+  - {num: 20, id: RIDGE_HYBRID, learner: ridge, spec: hybrid}
+  - {num: 21, id: LGBM_GLOBAL, learner: lgbm, spec: global}
+  - {num: 22, id: LGBM_INDUSTRY, learner: lgbm, spec: industry}
+  - {num: 23, id: LGBM_HYBRID, learner: lgbm, spec: hybrid}
+  - {num: 24, id: XGB_GLOBAL, learner: xgb, spec: global}
+  - {num: 25, id: XGB_INDUSTRY, learner: xgb, spec: industry}
+  - {num: 26, id: XGB_HYBRID, learner: xgb, spec: hybrid}
+  - {num: 27, id: MLP_GLOBAL, learner: mlp, spec: global}
+  - {num: 28, id: MLP_INDUSTRY, learner: mlp, spec: industry}
+  - {num: 29, id: MLP_HYBRID, learner: mlp, spec: hybrid}
+  - {num: 30, id: SVR_GLOBAL, learner: svr, spec: global}
+  - {num: 31, id: SVR_INDUSTRY, learner: svr, spec: industry}
+  - {num: 32, id: SVR_HYBRID, learner: svr, spec: hybrid}
+  # Feature sets, cleaning, windows, anchors, universes
+  # Regime columns are anchor-constant: declare them `kind: broadcast` in the feature YAML. R1 then passes them through
+  # and the learner is wrapped in BroadcastScaler (train-anchor mean/SD); undeclared they would be zeroed by R1.
+  - {num: 33, id: RF_GLOBAL_EXT, learner: rf, features: core_ext}        # + regime broadcast, log mcap, rvol_63, beta_252
+  - {num: 34, id: RF_GLOBAL_MOM, learner: rf, features: core_mom}        # + 01 §2.5 momentum set
+  - {num: 35, id: LGBM_GLOBAL_MOM, learner: lgbm, features: core_mom}
+  - {num: 36, id: RIDGE_GLOBAL_MOM, learner: ridge, features: core_mom}
+  - {num: 37, id: RF_GLOBAL_DMEDIAN, learner: rf, growth_mode: dossier_median}
+  - {num: 38, id: RF_GLOBAL_TRAIN2Y, learner: rf, train_window: {kind: rolling, n: 2}}
+  - {num: 39, id: RF_GLOBAL_EXPANDING, learner: rf, train_window: {kind: expanding}}
+  - {num: 40, id: RF_GLOBAL_MARCH, learner: rf, anchor_family: march, counted_tests: [2021, 2022, 2023, 2024],
+     indicative_tests: [2020], sealed: [2025]}
+  - {num: 41, id: P1_COMP_EW_MARCH, model: p1_comp_ew, anchor_family: march, counted_tests: [2021, 2022, 2023, 2024],
+     indicative_tests: [2020], sealed: [2025]}
+  - {num: 42, id: RF_GLOBAL_ADV05, learner: rf, adv_floor_cr: 0.5}
+  - {num: 43, id: RF_GLOBAL_U1000, learner: rf, universe: U1000}
+  - {num: 44, id: RF_GLOBAL_TEXT, learner: rf, features: core_text, subset: text_covered, indicative: true,
+     paired_with: RF_GLOBAL}
+  - {num: 45, id: RIDGE_GLOBAL_TEXT, learner: ridge, features: core_text, subset: text_covered, indicative: true,
+     paired_with: RIDGE_GLOBAL}
+  # Consensus rules (05 §4); counted trials
+  - {num: 46, id: CONS_MAJ, consensus: majority, min_votes: 6}
+  - {num: 47, id: CONS_UNAN, consensus: unanimous, min_names: 5}
+  - {num: 48, id: ENS_RANKAVG, consensus: rank_average}
+  # 05 §11: 90/10 reading (a) on the RF lineage (2×2 feature-impact ablation with #12 and #33)
+  - {num: 49, id: RF_GLOBAL_9010SEC, learner: rf, ninety_ten_sec: true, paired_with: RF_GLOBAL}
+  - {num: 50, id: RF_GLOBAL_EXT_9010SEC, learner: rf, features: core_ext, ninety_ten_sec: true,
+     paired_with: RF_GLOBAL_EXT}

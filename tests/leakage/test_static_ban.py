@@ -3,6 +3,8 @@
 * No string constant in ideation/{features,labels,universe,models,cv,eval,backtest} may name a banned source.
 * features/models/universe must not import ideation.lake, ideation.labels or psycopg (models' training entry
   ``ideation/models/train.py`` may import labels). Feature builders take a PitView, never a connection.
+* cv/eval/models/rank/trials must not import ideation.lake or psycopg (E1, 05 §10.3); features/models/universe/rank/cv
+  must not import the post-anchor ``ideation.outcomes`` (05 §5).
 * features/labels/universe must not read the clock (date.today / datetime.now / utcnow / time.time).
 
 Each rule has a self-test on a planted module, so the scan cannot pass vacuously while the dirs are near-empty.
@@ -19,11 +21,15 @@ from ideation.config import REPO_ROOT
 from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
-BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest")
+BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank")
 BAN_ALLOWLIST: frozenset[str] = frozenset()  # live-overlay modules, e.g. "ideation/ideas/overlay.py"
 IMPORT_RESTRICTED = ("features", "models", "universe")
 FORBIDDEN_IMPORTS = ("ideation.lake", "ideation.labels", "psycopg", "psycopg2")
 IMPORT_EXCEPTIONS = {("ideation/models/train.py", "ideation.labels")}
+LAKE_FREE = ("cv", "eval", "models", "rank", "trials")
+LAKE_IMPORTS = ("ideation.lake", "psycopg", "psycopg2")
+OUTCOME_FREE = ("features", "models", "universe", "rank", "cv")
+OUTCOME_IMPORTS = ("ideation.outcomes",)
 CLOCK_SCANNED = ("features", "labels", "universe")
 CLOCK_ATTRS = {("date", "today"), ("datetime", "now"), ("datetime", "utcnow"), ("datetime", "today"), ("time", "time"),
                ("Timestamp", "now"), ("Timestamp", "today")}  # fmt: skip
@@ -65,11 +71,11 @@ def imported_modules(path: Path, root: Path = PKG) -> list[str]:
     return out
 
 
-def forbidden_imports(path: Path, root: Path = PKG) -> list[str]:
+def forbidden_imports(path: Path, root: Path = PKG, forbidden: tuple[str, ...] = FORBIDDEN_IMPORTS) -> list[str]:
     rel = path.relative_to(root.parent).as_posix()
     hits = []
     for mod in imported_modules(path, root):
-        for banned in FORBIDDEN_IMPORTS:
+        for banned in forbidden:
             if (mod == banned or mod.startswith(banned + ".")) and (rel, banned) not in IMPORT_EXCEPTIONS:
                 hits.append(mod)
     return hits
@@ -87,7 +93,7 @@ def clock_reads(path: Path) -> list[str]:
 
 # ── the real scans ───────────────────────────────────────────────────────────────────────────────────────────
 def test_scanned_packages_exist() -> None:
-    for d in ("features", "labels", "universe", "models", "cv", "eval"):
+    for d in ("features", "labels", "universe", "models", "cv", "eval", "rank", "trials"):
         assert (PKG / d / "__init__.py").is_file(), d
 
 
@@ -102,6 +108,23 @@ def test_static_ban() -> None:
 
 def test_import_contract() -> None:
     hits = {p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p) for p in py_files(IMPORT_RESTRICTED)}
+    assert {k: v for k, v in hits.items() if v} == {}
+
+
+def test_lake_free_packages() -> None:
+    """E1 packages run on frames only: no lake reader, no database driver."""
+    hits = {
+        p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p, forbidden=LAKE_IMPORTS) for p in py_files(LAKE_FREE)
+    }
+    assert {k: v for k, v in hits.items() if v} == {}
+
+
+def test_outcomes_are_isolated() -> None:
+    """05 §5: outcomes read the future by design; nothing that builds features, fits or ranks may import them."""
+    hits = {
+        p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p, forbidden=OUTCOME_IMPORTS)
+        for p in py_files(OUTCOME_FREE)
+    }
     assert {k: v for k, v in hits.items() if v} == {}
 
 
@@ -142,6 +165,11 @@ def test_scanner_catches_planted_imports(planted: Path) -> None:
         "ideation.labels",
     }
     assert "numpy" not in forbidden_imports(mod, planted)
+    (planted / "rank").mkdir()
+    rk = planted / "rank" / "bad.py"
+    rk.write_text("from psycopg import sql\nfrom ideation.outcomes import analyst\nfrom ideation.labels import x\n")
+    assert set(forbidden_imports(rk, planted, LAKE_IMPORTS)) == {"psycopg", "psycopg.sql"}
+    assert set(forbidden_imports(rk, planted, OUTCOME_IMPORTS)) == {"ideation.outcomes", "ideation.outcomes.analyst"}
 
 
 def test_scanner_catches_planted_clock_reads(planted: Path) -> None:

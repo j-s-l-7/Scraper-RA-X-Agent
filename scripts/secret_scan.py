@@ -75,6 +75,7 @@ FORBIDDEN_GLOBS = (
 FORBIDDEN_ALLOW = (".env.example",)
 FORBIDDEN_DIRS = ("data", "reports", "logs")
 FORBIDDEN_DIR_ALLOW = ("ideation/reports",)
+FORBIDDEN_PATHS = ("docs/RANKING_MECHANISM.md",)  # rendered report with numbers (05 O7); only the template is code
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,8 @@ def check_path(path: str, size: int) -> list[Finding]:
     out: list[Finding] = []
     if p.name not in FORBIDDEN_ALLOW and any(fnmatch.fnmatch(p.name, g) for g in FORBIDDEN_GLOBS):
         out.append(Finding(path, 0, "forbidden-file-type", ""))
+    if str(p) in FORBIDDEN_PATHS:
+        out.append(Finding(path, 0, "forbidden-report-file", ""))
     parents = [str(PurePosixPath(*p.parts[: i + 1])) for i in range(len(p.parts) - 1)]
     for parent in parents:
         if PurePosixPath(parent).name in FORBIDDEN_DIRS and parent not in FORBIDDEN_DIR_ALLOW:

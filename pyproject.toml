@@ -12,6 +12,7 @@ dependencies = [
     "scipy>=1.13",
     "scikit-learn>=1.5",
     "lightgbm>=4.3",
+    "xgboost>=3.4,<3.5",
     "cvxpy>=1.5",
     "psycopg[binary]>=3.2",
     "pydantic>=2.7",
@@ -67,7 +68,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106", "S108"]
+"tests/**" = ["S105", "S106", "S108", "N803", "N806"]
+# `X` / `X_train` is the scikit-learn convention for a model matrix
+"ideation/{cv,eval,models,rank}/**" = ["N803", "N806"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ideation"]

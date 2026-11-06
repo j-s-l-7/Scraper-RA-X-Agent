@@ -5,6 +5,9 @@
 #  3. offline tests: pytest -m "not lake"
 set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
+# Drop the repo-local variables git exports to hooks (GIT_DIR is absolute in a linked worktree). Left set, the
+# tests' throw-away `git -C <tmp> ...` calls act on THIS repository. git finds the repo from the cwd above.
+unset $(git rev-parse --local-env-vars)
 zero=0000000000000000000000000000000000000000
 status=0
 

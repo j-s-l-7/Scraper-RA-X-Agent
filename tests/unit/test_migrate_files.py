@@ -18,6 +18,8 @@ EXPECTED_TABLES = {
     "run_manifest", "experiment_trial", "calendar", "security_map", "universe_member", "universe_coverage", "label",
     # 05 §8 (P1, 003)
     "holdout_unseal",
+    # E1 (05 §2, §5): migrations 010–012
+    "oos_prediction", "rank_calibration", "outcome",
 }  # fmt: skip
 
 
@@ -26,8 +28,11 @@ def declared_tables(sql: str) -> set[str]:
 
 
 def test_discover_orders_and_covers_all_tables() -> None:
+    """Versions are sorted and unique from 001; gaps are allowed (phases own number ranges, 05 §10.1)."""
     ms = discover()
-    assert [m.version for m in ms] == sorted(m.version for m in ms) == list(range(1, len(ms) + 1))
+    versions = [m.version for m in ms]
+    assert versions == sorted(set(versions))
+    assert versions[0] == 1
     assert set().union(*(declared_tables(m.sql) for m in ms)) == EXPECTED_TABLES
 
 

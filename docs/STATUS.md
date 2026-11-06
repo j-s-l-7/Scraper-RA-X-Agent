@@ -545,7 +545,7 @@ cache in `text/cache/`), nothing is written to the lake, no LLM/network, `.secre
 ### Commands and runtimes
 - `uv run ideation text extract --types concall_transcript,concall_ppt` cold (`--no-cache`): **272 s** (4 workers,
   53,892 docs); warm (all from cache): **12.8 s**. Targets 20 min / 1 min.
-- `uv run ruff check .` clean; `pytest -m "not lake"` 482 passed incl. PT1 (181 s earlier run 481 + 1 new); `pytest -m lake`
+- `uv run ruff check .` clean; `pytest -m "not lake"` 481 passed + 1 skipped + 1 xfail + 1 xpass in 183 s (before the final catalog test; PT1 files 36 tests pass); `pytest -m lake`
   64 passed; `scripts/secret_scan.py --all` clean.
 
 ### Measured acceptance
@@ -599,5 +599,5 @@ per-quarter tone table (mean tone_net, mean d_tone, share negative, n) on every 
   `filed_date` is the only intra-month information.
 - Covered-names selection: coverage is survivors only and rises from ~190 companies (2016) to 1,300 (2026).
 - Tone is positive-skewed (mean tone_net ~0.6); PT2 uses within-company deltas, which the 2020-Q1 check supports.
-- Non-BSE transcripts (about 4,500) carry statutory floors only; 2 of them may be later than the true filing, never earlier.
+- Non-BSE transcripts (about 4,500) carry statutory floors only, which can be later than the true filing but not earlier.
 - `qa_ok` PPTs are ~0%; `qa_*` features are transcript-only.

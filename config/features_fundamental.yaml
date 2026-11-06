@@ -1,0 +1,93 @@
+# Fundamental feature map (05 §10.1 / §10.3 P2, 01 §2.3-2.4, 03 §C2/C6/C7). Owner: P2. One flat file per feature
+# family; ideation/features/registry.py loads every config/features_*.yaml and validates it.
+#
+# Per-feature keys:
+#   family     metric family for the in-fold VIF/selection step (05 §3.4 step 2): members of one family are
+#              near-duplicates and only the best |t| survives.
+#   prior      sign prior (+1/-1; null = none). Used by scr, the industry z flip and the EW composite.
+#   kind       cross_sectional | broadcast (rank.transform.columns_of_kind).
+#   category   quality | growth | valuation | risk | size (dossier grouping).
+#   layouts    layouts where the column applies (core | fin_layout | fin_other). Not applicable => na_layout_<f>.
+#   set        core (1Y model matrix) | ext (core+ext variant; 01 §2.3) | shown (computed, excluded from the 1Y model).
+#   growth     true => winsorized at P5/P95 (C6 `winsor`) or median-replaced (`dossier_median`); false => P1/P99.
+#   complete   true => counts in feature_complete / c_i (default: set == core).
+#   need_fy    annual FYs of history the definition needs (feasibility vs the 02 §4.1 calendar).
+#   lines      aliases from `lines:` used by the builder (registry validates them against the metric catalog).
+version: 1
+
+lines:   # alias: "<section>/<name>"; each pair must resolve to exactly one metric_id in the snapshot catalog
+  sales: profit-loss/Sales
+  revenue: profit-loss/Revenue
+  fin_profit: profit-loss/Financing Profit
+  fin_margin_pct: profit-loss/Financing Margin %
+  expenses: profit-loss/Expenses
+  op: profit-loss/Operating Profit
+  other_income: profit-loss/Other Income
+  dep: profit-loss/Depreciation
+  tax_pct: profit-loss/Tax %
+  np: profit-loss/Net Profit
+  eps: profit-loss/EPS in Rs
+  payout_pct: profit-loss/Dividend Payout %
+  np_exex: profit-loss/Profit excl Excep
+  np_eps: profit-loss/Profit for EPS
+  eqcap: balance-sheet/Equity Capital
+  reserves: balance-sheet/Reserves
+  borr: balance-sheet/Borrowings
+  ta: balance-sheet/Total Assets
+  nci: balance-sheet/Non controlling int
+  cash: balance-sheet/Cash Equivalents
+  deposits: balance-sheet/Deposits
+  cfo: cash-flow/Cash from Operating Activity
+  fcf: cash-flow/Free Cash Flow
+  capex: cash-flow/Fixed assets purchased
+  ccc: ratios/Cash Conversion Cycle
+
+cleaning:
+  growth_pct: [5, 95]     # 01 §2.1: growth P5/P95; trial `dossier_median` replaces outliers by the median instead
+  other_pct: [1, 99]
+  eps_floor: 0.5          # eps_g1 denominator max(|EPS_{t-1}|, 0.5)
+  tax_clip: [0, 40]
+  fy_gap_months: 12       # consecutive FYs differ by exactly 12 months, else growth/avg/vol are NaN (FY change)
+  ipo_growth_months: 12   # C7: growth NaN for FYs ending within 12 months after the stitched listing date
+  extreme_growth: 5.0     # 06 item 3: flag identical growth > 500% in consecutive years
+  max_fy_age_days: 730    # same as universe.fy_max_age_days; an older current FY gives no features
+  fy_data_start: 2015-03-31   # first broad FY (02 §0.5); bounds the feasible history per anchor
+
+features:
+  # ── quality ───────────────────────────────────────────────────────────────────────────────────────────────
+  roe_norm:   {family: roe,  prior: 1,  kind: cross_sectional, category: quality, layouts: [core], set: core, growth: false, need_fy: 1, lines: [np_exex, eqcap, reserves]}
+  roe:        {family: roe,  prior: 1,  kind: cross_sectional, category: quality, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [np_eps, eqcap, reserves]}
+  roa:        {family: roa,  prior: 1,  kind: cross_sectional, category: quality, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [np, ta]}
+  roic:       {family: roic, prior: 1,  kind: cross_sectional, category: quality, layouts: [core], set: core, growth: false, need_fy: 1, lines: [op, dep, tax_pct, eqcap, reserves, borr, cash]}
+  opm:        {family: opm,  prior: 1,  kind: cross_sectional, category: quality, layouts: [core], set: core, growth: false, need_fy: 1, lines: [op, sales]}
+  roe_3y:     {family: roe,  prior: 1,  kind: cross_sectional, category: quality, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 3, lines: [np_eps, eqcap, reserves]}
+  roic_3y:    {family: roic, prior: 1,  kind: cross_sectional, category: quality, layouts: [core], set: core, growth: false, need_fy: 3, lines: [op, dep, tax_pct, eqcap, reserves, borr, cash]}
+  fin_margin: {family: fin_margin, prior: 1, kind: cross_sectional, category: quality, layouts: [fin_layout], set: core, growth: false, need_fy: 1, lines: [fin_margin_pct]}
+  cost_ratio: {family: cost_ratio, prior: -1, kind: cross_sectional, category: quality, layouts: [fin_layout], set: core, growth: false, need_fy: 1, lines: [expenses, revenue, other_income]}
+  # ── growth ────────────────────────────────────────────────────────────────────────────────────────────────
+  rev_g1:     {family: rev_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core, fin_layout, fin_other], set: core, growth: true, need_fy: 2, lines: [sales, revenue, fin_profit]}
+  eps_g1:     {family: eps_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core, fin_layout, fin_other], set: core, growth: true, need_fy: 2, lines: [eps]}
+  rev_g3:     {family: rev_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core], set: core, growth: true, need_fy: 4, lines: [sales]}
+  eps_g3:     {family: eps_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core, fin_layout, fin_other], set: core, growth: true, need_fy: 4, lines: [eps]}
+  rev_g5:     {family: rev_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core], set: shown, growth: true, need_fy: 6, lines: [sales]}
+  eps_g5:     {family: eps_g, prior: 1, kind: cross_sectional, category: growth, layouts: [core, fin_layout, fin_other], set: shown, growth: true, need_fy: 6, lines: [eps]}
+  dep_g1:     {family: bs_g, prior: 1,  kind: cross_sectional, category: growth, layouts: [fin_layout], set: core, growth: true, complete: false, need_fy: 2, lines: [deposits]}
+  ta_g1:      {family: bs_g, prior: 1,  kind: cross_sectional, category: growth, layouts: [fin_layout, fin_other], set: core, growth: true, need_fy: 2, lines: [ta]}
+  # ── valuation (yield form; mcap_pit per 03 §C2, never historical_prices.close) ──────────────────────────────
+  sp:         {family: sp,  prior: 1, kind: cross_sectional, category: valuation, layouts: [core], set: core, growth: false, need_fy: 1, lines: [sales]}
+  ep:         {family: ep,  prior: 1, kind: cross_sectional, category: valuation, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [np_eps]}
+  ebitda_ev:  {family: ebitda_ev, prior: 1, kind: cross_sectional, category: valuation, layouts: [core], set: core, growth: false, need_fy: 1, lines: [op, borr, cash, nci]}
+  fcf_yield:  {family: fcf_yield, prior: 1, kind: cross_sectional, category: valuation, layouts: [core], set: core, growth: false, need_fy: 1, lines: [fcf]}
+  bp:         {family: bp,  prior: 1, kind: cross_sectional, category: valuation, layouts: [fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [eqcap, reserves]}
+  # ── risk ──────────────────────────────────────────────────────────────────────────────────────────────────
+  nd_ebitda:  {family: nd_ebitda, prior: -1, kind: cross_sectional, category: risk, layouts: [core], set: core, growth: false, need_fy: 1, lines: [borr, cash, op]}
+  opm_vol3:   {family: opm_vol,  prior: -1, kind: cross_sectional, category: risk, layouts: [core], set: core, growth: false, need_fy: 3, lines: [op, sales]}
+  roe_vol3:   {family: roe_vol,  prior: -1, kind: cross_sectional, category: risk, layouts: [core, fin_layout, fin_other], set: core, growth: false, need_fy: 3, lines: [np_eps, eqcap, reserves]}
+  roic_vol3:  {family: roic_vol, prior: -1, kind: cross_sectional, category: risk, layouts: [core], set: core, growth: false, need_fy: 3, lines: [op, dep, tax_pct, eqcap, reserves, borr, cash]}
+  lev:        {family: lev, prior: -1, kind: cross_sectional, category: risk, layouts: [fin_layout, fin_other], set: core, growth: false, need_fy: 1, lines: [ta, eqcap, reserves]}
+  # ── extended candidates (01 §2.3; bake-off variant core_ext, default off) ───────────────────────────────────
+  size:       {family: size,   prior: null, kind: cross_sectional, category: size, layouts: [core, fin_layout, fin_other], set: ext, growth: false, need_fy: 1, lines: []}
+  cfo_np:     {family: accrual, prior: 1,   kind: cross_sectional, category: quality, layouts: [core], set: ext, growth: false, need_fy: 1, lines: [cfo, np]}
+  ccc_chg:    {family: ccc,    prior: -1,   kind: cross_sectional, category: risk, layouts: [core], set: ext, growth: false, need_fy: 2, lines: [ccc]}
+  payout:     {family: payout, prior: null, kind: cross_sectional, category: quality, layouts: [core], set: ext, growth: false, need_fy: 1, lines: [payout_pct]}
+  capex_int:  {family: capex,  prior: null, kind: cross_sectional, category: risk, layouts: [core], set: ext, growth: false, need_fy: 1, lines: [capex, sales]}

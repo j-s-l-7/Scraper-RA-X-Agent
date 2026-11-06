@@ -121,3 +121,51 @@ def coverage_02(store: PitStore, anchor: Any, cfg: dict[str, Any]) -> dict[str, 
             k: round(100 * (out[f"{k}_fund_stitched"] - ref[k]), 2) for k in ("top500", "top1000", "all")
         }
     return out
+
+
+# ── 05 §0.1 breadth table (05's own definition) ──────────────────────────────────────────────────────────────
+# anchor -> (traded >=50/63, ADV63 >= 0.5cr, >=0.5cr & mapped, >=0.2cr & mapped, >=1cr & mapped, mapped)
+REFERENCE_05 = {
+    "2016-06-30": (1486, 887, 650, 768, 535, 999),
+    "2019-06-28": (1630, 850, 697, 833, 558, 1224),
+    "2022-06-30": (1888, 1339, 1171, 1333, 1022, 1564),
+    "2025-06-30": (2323, 1763, 1565, 1779, 1400, 2007),
+}
+
+
+def breadth_05(store: PitStore, anchor: Any) -> dict[str, Any]:
+    """05 §0.1 under 05's definition: bhav EQ/BE/BZ by **symbol**, traded in >= 50 of the last 63 sessions,
+    ADV63 = Σ turnover / 63, mapped by **today's** ``company.nse_symbol`` (no stitching, no last-5 rule). Also the
+    P1 decomposition at the same anchor: our trading rules + today's-symbol mapping, the stitching gain, and the
+    too-new / FY / mcap filter steps down to U_score (explains the U_score-vs-05 §1.1 gap)."""
+    from ideation.universe.build import UniverseConfig, build_universe  # local: build imports this module's peers
+
+    view = store.as_of(anchor, record=False)
+    px = view.prices_raw(63, columns=["symbol", "series", "date", "turnover_lacs"])
+    px = px[px["series"].isin(["EQ", "BE", "BZ"])]
+    g = px.groupby("symbol")
+    t = pd.DataFrame({"n": g["date"].nunique(), "adv": g["turnover_lacs"].sum() / 63})
+    t = t[t["n"] >= 50]
+    cur = set(store.table("company")["nse_symbol"])
+    mapped = t.index.isin(cur)
+    row = (
+        len(t), int((t["adv"] >= 50).sum()), int(((t["adv"] >= 50) & mapped).sum()),
+        int(((t["adv"] >= 20) & mapped).sum()), int(((t["adv"] >= 100) & mapped).sum()), int(mapped.sum()),
+    )  # fmt: skip
+    from ideation.config import load_methodology
+
+    mem, _ = build_universe(view, UniverseConfig.from_methodology(load_methodology().data))
+    base = mem[mem["traded_ok"] & (mem["adv63_lakh"] >= 20)]
+    by_sym = int(base["symbol"].isin(cur).sum())
+    stitched = int(base["company_id"].notna().sum())
+    after_new = int((base["company_id"].notna() & (base["listed_sessions"] >= 126)).sum())
+    return {
+        "anchor": str(anchor),
+        "ours_05_definition": row,
+        "ref_05": REFERENCE_05.get(str(anchor)),
+        "p1_traded_adv02_mapped_by_today_symbol": by_sym,
+        "p1_mapped_by_stitching": stitched,
+        "stitching_gain": stitched - by_sym,
+        "p1_after_too_new": after_new,
+        "u_score": int(mem["in_u_score"].sum()),
+    }

@@ -222,8 +222,8 @@ clean tree.
 | `uv run ideation labels build --horizon 1Y,3M,1M --anchors june,march,monthly --force` | 581 anchor×horizon, 971,740 rows (19 sealed anchors stored, not read) | **164.0 s** |
 | `uv run ideation coverage --anchors june` / `uv run ideation bias-block` | tables below; block renders with code `a499ccf5b922` | < 3 s |
 | `uv run ruff check .` | All checks passed! | 0.2 s |
-| `uv run pytest -m "not lake"` | **324 passed, 1 skipped** (T-26 fit entry points, P4+) | 15.0 s |
-| `uv run pytest -m lake` | **58 passed** | 1:59 |
+| `uv run pytest -m "not lake"` | **325 passed, 1 skipped** (T-26 fit entry points, P4+) | 13.3 s |
+| `uv run pytest -m lake` | **62 passed** (incl. 26 P1 real-snapshot acceptance tests) | 171.6 s |
 | `uv run python scripts/secret_scan.py --all` | secret_scan: clean | 0.7 s |
 | `uv run ideation doctor` | doctor passed; schema_version 3 (checksums match); bhav 0 sessions behind | 1.3 s |
 
@@ -245,12 +245,13 @@ Exit types over the unsealed anchors of all families:
 | T-16 survivorship | ADVANTA, KALINDEE (2016-03-31 top-1000, corp_exit); PLETHICO, COREEDUTEC (2015-07-31 top-1000, BZ distress −100%, last-price sensitivity > −100%); all uncovered, not in U_score |
 | T-20 PIT adjustment | HATHWAY/MINDACORP/RELIANCE/INFY at 2016-03-31: `close_adj = raw × Π factors(eff ≤ A)` (rel 1e-12); the 2017 RELIANCE bonus is never applied inside the 2016 view |
 | T-21 mcap A vs B1 at 2019-03-29 | n = 1,091; median abs err **0.75%** (< 2%); **87.9%** within 10% (≥ 85%) |
-| T-22 own 1Y TR vs yfinance adj_close (unsealed June anchors, via `load_labels(purpose='qa')`) | share > 5 pp, all names / ex-rights-flagged: 2015 0.47/0.38%, 2016 0.71/0.27%, 2017 1.23/0.91%, 2018 1.08/0.70%, 2019 1.15/0.92%, 2020 1.74/0.96%, 2021 1.28/0.27%, 2022 **1.88**/0.98%, 2023 1.45/0.88%, 2024 0.69/0.65% (≤ 2% everywhere) |
+| T-22 own 1Y TR vs yfinance adj_close (unsealed June anchors, via `load_labels(purpose='qa')`) | share > 5 pp, all names / ex-rights-flagged: 2015 0.47/0.38%, 2016 0.71/0.27%, 2017 1.23/0.91%, 2018 1.08/0.70%, 2019 1.15/0.92%, 2020 1.74/0.96%, 2021 1.28/0.27%, 2022 **1.88**/0.98%, 2023 1.45/0.88%, 2024 0.69/0.65%; early anchors 2010 1.33/1.00%, 2011 0.93/0.83%, 2012 0.80/0.71%, 2013 1.20/0.88%, 2014 0.58/0.39% (≤ 2% at every unsealed June anchor 2010–2024; the test covers all of them) |
 | T-23 calendar gaps | anchor 2019-09-30 → 2019-09-19; entry after 2019-09-19 → 2019-10-01; exit on 2019-09-25 → 2019-09-19 (03 §C3 amendment) |
 | T-26 skeleton | sealed sets, `SealedAnchorError` until a family is unsealed, fail-closed DB read, audit list; P4+ adds fit entry points to `FIT_ENTRY_POINTS` |
 | Coverage vs 02 §0.1 (02's own definition, 02 mapping) | traded counts exact (1,526 / 1,635 / 1,879 / 2,306); top-500 / top-1000 Δpp: 2016 +0.0/+0.2, 2019 +0.2/+0.3, 2022 +0.0/+0.0, 2025 +0.0/+0.0 (stitched mapping within ±0.4 pp); ADV at rank 500/1000 within 1% |
 | Exit counts vs 02 §0.2 | stopped 1,052 (1,053), renamed 355 (355), ISIN continues 382 (384), true exits 665 (664), last BZ 204 (205), last BE 309 (308), last price present 1,049 (1,050), true-exit median 1Y price ratio 0.81 (0.83): all within 0.6% |
-| 05 §0.1 breadth table reproduced under 05's definition (EQ/BE/BZ, ≥ 50/63 days, today's symbol) | all 24 numbers exact at 2016/2019/2022/2025 |
+| 05 §0.1 breadth table reproduced under 05's definition (EQ/BE/BZ, ≥ 50/63 days, today's symbol) | all 24 numbers exact at 2016/2019/2022/2025 (`universe.coverage.breadth_05`, lake test) |
+| exits unit tests (synthetic) | normal + dividend TR, split-neutral, BZ distress, BE-run collapse distress (−100%, last-price sensitivity), corp exit (+ rights flag), residual stale, no trade after anchor, delayed entry, a factor known only after `label_end` ignored |
 
 **U_score per June anchor (05 §1.1, ₹0.2 cr primary, no feature-completeness filter yet):**
 
@@ -370,3 +371,10 @@ model-selection step it could contaminate.
 - The universe build takes ≈ 4 min for 199 anchors (≈ 1.2 s/anchor), close to the 5-minute budget. Monthly anchors
   dominate.
 - Quarterly facts: `PitView.fundamentals('Q')` raises before 2023-06-30 (02 §1.2).
+- **Sealed labels are physically present.** They sit in `ideation.label` and `outputs/<snap>/labels.parquet` and can be
+  read with plain SQL or pandas. The seal holds only if every P4+ consumer reads labels through
+  `labels.loader.load_labels`. A static check banning direct reads of `ideation.label` / `labels.parquet` outside the
+  loader would close the gap; it is not added in P1.
+- Two snapshots are on disk: `20261105-ae45cd55` (superseded, still registered in `ideation.snapshot`) and the final
+  `20261105-e33e7986`. Together with outputs that is ≈ 1.1 GB. `PitStore.latest` picks the newest; the older one can
+  be pruned.

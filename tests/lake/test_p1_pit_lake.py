@@ -21,7 +21,7 @@ from ideation.labels.exits_report import exit_counts_02
 from ideation.labels.loader import load_labels, unsealed_only
 from ideation.pit.contract import PitStore
 from ideation.universe.build import UniverseConfig, build_universe
-from ideation.universe.coverage import coverage_02
+from ideation.universe.coverage import REFERENCE_05, breadth_05, coverage_02
 
 CFG = UniverseConfig.from_methodology(load_methodology().data)
 _UCACHE: dict[tuple[str, date], pd.DataFrame] = {}
@@ -174,7 +174,7 @@ def test_t22_label_crosscheck_yf(pit_store: PitStore) -> None:
     """Own 1Y TR vs yfinance adj_close, covered names, every UNSEALED June anchor: <= 2% differ by > 5 pp. Sealed
     anchors are never read (the loader enforces it)."""
     cal = pit_store.calendar
-    anchors = unsealed_only(cal.annual_anchors(6, 2015, 2025), "1Y")
+    anchors = unsealed_only(cal.annual_anchors(6, 2010, 2025), "1Y")
     assert date(2025, 6, 30) not in anchors
     u = pd.concat([universe(pit_store, a) for a in anchors])
     built = compute_labels(pit_store, u, label_specs(cal, anchors, ["1Y"]))
@@ -191,7 +191,7 @@ def test_t22_label_crosscheck_yf(pit_store: PitStore) -> None:
     lab = lab.dropna(subset=["yf"])
     lab["off"] = (lab["ret_total"] - lab["yf"]).abs() > 0.05
     share = lab.groupby("anchor")["off"].mean()
-    assert lab.groupby("anchor").size().min() > 900
+    assert lab.groupby("anchor").size().min() > 850
     assert (share <= 0.02).all(), share.to_dict()
 
 
@@ -202,6 +202,17 @@ def test_coverage_02_reproduction(pit_store: PitStore, anchor: date) -> None:
     assert c["n_traded"] == c["ref_02"]["traded"]
     for k, dpp in c["delta_pp_02map"].items():
         assert abs(dpp) <= 2.0, (k, dpp)
+
+
+@pytest.mark.parametrize("anchor", sorted(REFERENCE_05))
+def test_breadth_05_reproduction_and_stitching_gain(pit_store: PitStore, anchor: str) -> None:
+    """05 §0.1's breadth table reproduces exactly under 05's definition; the U_score-vs-05 §1.1 gap decomposes into
+    the stitching gain plus small filter steps (STATUS Phase 1)."""
+    b = breadth_05(pit_store, date.fromisoformat(anchor))
+    assert b["ours_05_definition"] == REFERENCE_05[anchor]
+    assert abs(b["p1_traded_adv02_mapped_by_today_symbol"] - REFERENCE_05[anchor][3]) <= 10
+    assert b["stitching_gain"] > 0
+    assert b["u_score"] <= b["p1_after_too_new"]
 
 
 def test_exit_counts_02_reproduction(pit_store: PitStore) -> None:

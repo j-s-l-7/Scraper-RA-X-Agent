@@ -40,6 +40,8 @@ def make_store(tmp: Path, mutate=None) -> PitStore:
     add(4, list(np.linspace(80, 88, 175)))  # corporate exit: liquid EQ, stops at DAYS[174]
     add(5, [30.0] * 151)  # last trade on A: no trade after the anchor
     add(6, [40.0] * 140 + [44.0] * (n - 153), start=0)  # gap: no trades DAYS[140..152], resumes at DAYS[153]
+    add(7, [100.0] * 150 + list(np.linspace(100, 40, 26)), series="BE")  # BE run + >50% fall, stops at DAYS[175]
+    add(8, [50.0] * 176, series="BE")  # BE, no collapse, stops at DAYS[175]: neither distress nor corp exit
     px = pd.DataFrame(rows, columns=["security_id", "date", "close", "series", "turnover_lacs"])
     px.loc[(px["security_id"] == 6) & (px.index >= px[px["security_id"] == 6].index[0] + 140), "date"] = [
         DAYS[153 + k] for k in range(n - 153)
@@ -74,9 +76,9 @@ def make_store(tmp: Path, mutate=None) -> PitStore:
 
 
 UNIVERSE = pd.DataFrame(
-    {"security_id": [1, 2, 3, 4, 5, 6], "anchor": A, "traded_ok": True,
-     "in_u_score": [True, True, False, True, False, True], "in_u_score_t": True,
-     "mcap_pit_cr": [100.0, 300.0, None, 50.0, None, 10.0]}
+    {"security_id": [1, 2, 3, 4, 5, 6, 7, 8], "anchor": A, "traded_ok": True,
+     "in_u_score": [True, True, False, True, False, True, False, False], "in_u_score_t": True,
+     "mcap_pit_cr": [100.0, 300.0, None, 50.0, None, 10.0, None, None]}
 )  # fmt: skip
 
 
@@ -119,6 +121,20 @@ def test_exits(labels: pd.DataFrame) -> None:
     assert "no_trade_after_anchor" in r5["flags"]
     assert r5["ret_total"] == 0.0
     assert np.isnan(r5["entry_price"])
+
+
+def test_be_collapse_distress_and_residual_stale(labels: pd.DataFrame) -> None:
+    r7 = labels.loc[7]
+    assert r7["exit_type"] == "distress"  # last 60 sessions all BE and last close < 50% of entry
+    assert r7["ret_total"] == -1.0
+    assert r7["ret_price"] == -1.0
+    assert r7["ret_total_last_price"] == pytest.approx(40.0 / r7["entry_price"] - 1)
+    assert r7["exit_price"] == pytest.approx(40.0)
+    r8 = labels.loc[8]
+    assert r8["exit_type"] == "stale"  # no trade in the final 20 sessions, BE without collapse
+    assert r8["ret_total"] == pytest.approx(0.0)  # last traded close, then cash
+    assert r8["ret_total_last_price"] == pytest.approx(r8["ret_total"])
+    assert r8["stale_days"] > 20
 
 
 def test_cross_sectional_variants(labels: pd.DataFrame) -> None:

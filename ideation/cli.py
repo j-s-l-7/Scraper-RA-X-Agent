@@ -23,10 +23,12 @@ app.add_typer(trials_app, name="trials")
 
 def _register_subapps() -> None:
     from ideation.labels.cli import app as labels_app
+    from ideation.text.cli import app as text_app
     from ideation.universe.cli import app as universe_app
 
     app.add_typer(universe_app, name="universe")
     app.add_typer(labels_app, name="labels")
+    app.add_typer(text_app, name="text")
 
 
 _register_subapps()

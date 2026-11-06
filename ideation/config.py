@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("~/Ideation-data")
     xagent_db: Path = Path("~/X-Agent/data/xagent.db")
     library_db: Path = Path("~/Scraper - Screener.in/data/library.sqlite")
+    documents_root: Path = Path("~/Scraper - Screener.in")
+    """Scraper checkout whose ``data/documents`` holds the transcript/PPT text (05 O6). Read-only, text/reader.py."""
     config_dir: Path = REPO_ROOT / "config"
     secrets_file: Path = DEFAULT_SECRETS_FILE
     """Private env file outside the repo (API keys for later phases). Optional; never logged or printed."""
@@ -64,7 +66,9 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY", "IDEATION_ANTHROPIC_API_KEY")
     )
 
-    @field_validator("data_dir", "xagent_db", "library_db", "config_dir", "secrets_file", mode="after")
+    @field_validator(
+        "data_dir", "xagent_db", "library_db", "documents_root", "config_dir", "secrets_file", mode="after"
+    )
     @classmethod
     def _expand(cls, v: Path) -> Path:
         return v.expanduser()

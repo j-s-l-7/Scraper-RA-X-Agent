@@ -376,3 +376,24 @@ YF_ADJ_CLOSE = NamedQuery(
     doc="yfinance total-return adj_close, ONLY for the T-22 label cross-check (never a valuation price). ~7M rows.",
     arrow_types={"symbol": _S, "date": _D, "adj_close": _F, "volume": _I},
 )
+
+DOCUMENTS_CATALOG = NamedQuery(
+    "documents_catalog",
+    "select company_id, doc_type, period_label, doc_date, source, fetch_source, page_count, char_count, pdf_sha256,"
+    " text_path from equity.document where status = 'ok' and doc_type in ('concall_transcript', 'concall_ppt')",
+    sources=("equity.document",),
+    doc="Extracted concall transcripts and presentations (05 §7.1; ~54k rows, one scan, < 1 s). doc_date is month-"
+    "granular. Reads no ban-listed source: no estimates, no snapshots, no status/completeness bookkeeping.",
+    arrow_types={
+        "company_id": _I,
+        "doc_type": _S,
+        "period_label": _S,
+        "doc_date": _D,
+        "source": _S,
+        "fetch_source": _S,
+        "page_count": _I,
+        "char_count": _I,
+        "pdf_sha256": _S,
+        "text_path": _S,
+    },
+)

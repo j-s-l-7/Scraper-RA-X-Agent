@@ -5,8 +5,9 @@
 | Plan | done | docs/plan/00–03 |
 | P0 scaffold | done (branch `phase-0-scaffold`) | see "Phase 0" below |
 | P1 snapshot / universes / labels | done (merged to `main`) | see "Phase 1" below |
+| PT1 text extraction | done (merged to `main`) | see "PT1" below |
 | E1 eval stack + zoo | done, merged to `main` (synthetic only; one known gap, see E1) | see "E1" below |
-| P2 fundamental features | done on branch `phase-2-fundamentals` (not pushed) | see "P2" below |
+| P2 fundamental features | done (merged to `main`; features, universes and labels rebuilt on `main` 2026-11-06 with the feature-completeness hook) | see "P2" below |
 
 ## Phase 0
 

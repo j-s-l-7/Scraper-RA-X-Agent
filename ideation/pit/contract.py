@@ -348,6 +348,21 @@ class PitView:
         adj = raw.assign(close_adj=back_adjust(raw, fac, self.anchor, kinds=kinds))
         return self._guard(adj, f"prices_adj[{lookback_sessions}|{','.join(kinds)}]")
 
+    def price_panel(self, lookback_sessions: int) -> Any:
+        """Dense sessions x securities panel (raw and back-adjusted close, value, delivery) of the last
+        ``lookback_sessions`` good sessions up to the anchor: same rules as ``prices_adj``, vectorised (P3)."""
+        from ideation.pit.panel import build_panel
+
+        panel = build_panel(self, lookback_sessions)
+        if panel.sessions[-1] != np.datetime64(self.anchor, "D"):
+            raise LeakageError("price_panel: last session is not the anchor")
+        if self._record:
+            self.records.append(
+                ManifestRecord(self.anchor, f"price_panel[{lookback_sessions}]", int(panel.close_raw.size),
+                               panel.sha256, self.anchor)
+            )  # fmt: skip
+        return panel
+
     def basis_conversion_factors(self) -> pd.DataFrame:
         """03 §C2 exemption: split/bonus factors effective AFTER the anchor (role ``basis_conversion``), used only
         to put an anchor-date price on today's share basis for B1/B2. Every row is checked to carry that role."""

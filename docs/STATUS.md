@@ -8,6 +8,8 @@
 | PT1 text extraction | done (merged to `main`) | see "PT1" below |
 | E1 eval stack + zoo | done, merged to `main` (synthetic only; one known gap, see E1) | see "E1" below |
 | P2 fundamental features | done (merged to `main`; features, universes and labels rebuilt on `main` 2026-11-06 with the feature-completeness hook) | see "P2" below |
+| P3 technical/regime, PT2 text features | in progress (Sonnet agents, branches `phase-3-technical-regime`, `phase-pt2-text-features`) | see 05 §12 |
+| PT3 annual-report text | planned after MS3 | 05 §12 |
 
 ## Phase 0
 

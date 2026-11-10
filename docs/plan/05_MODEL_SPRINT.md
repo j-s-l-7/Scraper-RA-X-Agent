@@ -824,3 +824,19 @@ Metrics: CAGR, vol, Sharpe, Sortino, Treynor, IR vs N500 and vs EW universe, max
 6. Breadth/divergence check per anchor (06 item 18): share of names with negative 1Y return, their mean, universe median vs Nifty 500.
 7. **Reconciliation log** (06 item 30): every reference number printed beside ours records dataset, N, years and denominator.
 8. Portfolio layer (P7) adds Ω factor c ∈ {1 (spec), 3 (He–Litterman, notebook)} as a config switch, both reported; RF-penalty flag (threshold 18%) default **off**, tested both ways (06 items 20, 23).
+
+---
+
+## 12. Owner addenda, 2026-11-11 (binding; extends §7 and §10)
+
+1. **Model name.** The quant model is called **Resurrection**.
+2. **PT3: annual-report text features** (new phase, starts after MS3 merges; fills the `[[LATER:annual_report_text]]` hook in §7.1).
+   - Corpus: 29,335 annual reports / 2,558 companies; `doc_date` is NULL, only `fiscal_year` is known.
+   - Features aimed mainly at the 1Y model: auditor remarks (qualifications, emphasis of matter), related-party transactions, contingent liabilities, tone of the management discussion.
+   - Availability: cover-page filing date if parseable, else a fixed lag after FY end; take the later of the two until real filing dates are checked.
+   - Evaluated as a challenger trial: same model with and without the features, same covered names, paired comparison. Enters Resurrection only if it wins.
+   - Multi-call text trends (e.g. slope of tone/guidance over the last 4 calls) are built here as an extension of §7.3 deltas.
+   - At most one text-embedding challenger, and only if the research report shows text helps at all. No sequence models or knowledge graph: ~22k calls and ~6 test years are too few to train them without overfitting.
+   - The pre-registered trial lists (N = 50 for 1Y, 25 for tactical) stay fixed. Any added trial is registered before running and counts toward DSR N.
+3. **Compute policy.** Where it improves estimation rather than widening the search: seed-averaged ensembles, full 36-split CPCV for every trial, bootstrap >= 10,000 resamples. When the Mac is otherwise idle the §10.2.d thread/`nice` caps may be lifted for MS1/MS2 compute.
+4. **Implementers.** Phase implementers are Sonnet 5.5 agents (was Opus). The leakage and future-poison tests are the quality gate before any merge to `main`.

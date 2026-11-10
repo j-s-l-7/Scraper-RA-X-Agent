@@ -14,7 +14,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from ideation.config import REPO_ROOT
-from ideation.features.fundamental import FLAG_COLS, build_fundamental, feasible_fy
+from ideation.features.fundamental import FLAG_COLS, SOURCE, build_fundamental, feasible_fy
 from ideation.features.registry import Registry, RegistryError, load_registry
 from ideation.features.transform import na_layout_frame, raw_winsorized
 from ideation.pit.contract import LeakageError, PitStore
@@ -202,7 +202,7 @@ def test_feature_available_from_never_exceeds_anchor(store: PitStore) -> None:
 def test_stale_fy_gives_no_features(store: PitStore) -> None:
     f = build(store, date(2021, 12, 31))
     assert f["layout"].isna().all()  # every latest FY is older than 730 days
-    assert f[REG.names()].isna().all().all()
+    assert f[REG.names(source=SOURCE)].isna().all().all()
 
 
 @pytest.mark.parametrize("mode", ["nan", "shuffle", "inflate"])
@@ -220,7 +220,7 @@ def test_output_is_sorted_and_flag_columns_present(store: PitStore) -> None:
     f = build_fundamental(store.as_of(A), members(range(8, 0, -1)), REG)
     assert f["security_id"].is_monotonic_increasing
     assert set(FLAG_COLS) <= set(f.columns)
-    assert set(REG.names()) <= set(f.columns)
+    assert set(REG.names(source=SOURCE)) <= set(f.columns)
 
 
 def test_growth_flag_marks_repeated_extreme_growth(store: PitStore) -> None:

@@ -1,0 +1,24 @@
+# Vendor-surprise challenger (05 §6.3, PT2). ONLY ideation/features/events_vendor.py may read the vendor estimates, only
+# for a trial whose config_json has allow_vendor_estimates: true, and only after the validity gate passed
+# (`ideation text vendor-gate`). Never in the core, never in 1Y. Tactical trials #19-20 (T1_vsurp).
+#   f_vsurp_last  100*(reported-estimate)/|estimate| (recomputed, never the stored column) of the latest event in
+#                 (A-120 d, A], winsorized at +-100 to tame near-zero estimates. NaN if estimate == 0.
+#   f_vbeat_4q    beats (reported > estimate) among the last 4 events in (A-400 d, A], divided by their number.
+#   isna_vsurp    1 when no event with an estimate in (A-120 d, A].
+# available_from = event_date + 1 (the results day's reaction is complete at the next close).
+version: 1
+
+params:
+  last_window_days: 120
+  beat_window_days: 400
+  beat_n: 4
+  clip_pct: 100.0
+  gate_from: 2015-01-01
+  gate_to: 2025-06-30        # first sealed tactical anchor is 2025-07-31 (05 §8): no sealed-window return is read
+
+flags:
+  isna_vsurp: 1 when the name has no visible event with an estimate in (A-120 d, A]
+
+features:
+  f_vsurp_last: {family: vsurp, prior: 1, kind: cross_sectional, category: event, set: vendor, complete: false}
+  f_vbeat_4q:   {family: vsurp, prior: 1, kind: cross_sectional, category: event, set: vendor, complete: false}

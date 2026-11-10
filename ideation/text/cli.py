@@ -114,3 +114,8 @@ def extract_cmd(
     tt = tt[tt["q"] >= "2018Q1"]
     _print_df("tone by quarter discussed (transcripts; d_tone vs the latest call 60-400 days earlier)", tt)
     console.print(f"output: {stats['out_path']}{' (not written: --limit)' if limit else ''}; {elapsed:.1f} s")
+
+
+from ideation.features.text_cli import register as _register_pt2  # noqa: E402
+
+_register_pt2(app)

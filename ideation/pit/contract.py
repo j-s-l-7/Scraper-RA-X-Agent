@@ -45,6 +45,10 @@ EXEMPT_ROLES = frozenset({"reference", "identity", "basis_conversion"})
 VENDOR_CALLERS = frozenset({"ideation.outcomes.analyst", "ideation.features.events_vendor"})
 QUARTERLY_FROM = date(2023, 6, 30)
 """02 §1.2: quarterly facts are usable in backtests only for anchors from 2023-06-30 (broad coverage from 2023)."""
+TEXT_DOCS = "text_docs"
+TEXT_DOCS_FILE = "doc_features_LEX_V1.parquet"
+"""PT1 output (``ideation text extract``): one row per concall transcript / presentation with ``available_from``
+(05 §7.2). It is served as the ``text_docs`` dataset so that the same guard and ``poison_after`` apply to it."""
 _FUTURE_IDENTITY_COLS = {"security_map": ("series_last",)}
 
 
@@ -99,6 +103,25 @@ def _freeze(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _prepare_text_docs(tbl: pa.Table) -> pa.Table:
+    """Unreadable documents carry no ``available_from`` and are dropped; every remaining row gets ``role='data'`` so
+    that ``poison_after`` treats the table like any other dataset."""
+    if "available_from" not in tbl.column_names:
+        raise LeakageError("dataset 'text_docs' has no available_from column")
+    keep = pc.and_(pc.is_valid(tbl["available_from"]), pc.fill_null(tbl["read_ok"], False))
+    tbl = tbl.filter(keep)
+    if tbl["available_from"].type != pa.date32():
+        tbl = tbl.set_column(
+            tbl.column_names.index("available_from"), "available_from", pc.cast(tbl["available_from"], pa.date32())
+        )
+    for c in ("doc_date", "filed_date", "q_end"):
+        if c in tbl.column_names and tbl[c].type != pa.date32():
+            tbl = tbl.set_column(tbl.column_names.index(c), c, pc.cast(tbl[c], pa.date32()))
+    if "role" not in tbl.column_names:
+        tbl = tbl.append_column("role", pa.array(["data"] * tbl.num_rows, pa.string()))
+    return tbl
+
+
 class PitStore:
     """Local parquet snapshot with ``available_from`` on every row: the only entry point for features."""
 
@@ -108,6 +131,7 @@ class PitStore:
         mode: Literal["backtest", "live"] = "backtest",
         *,
         outputs_dir: Path | None = None,
+        text_dir: Path | None = None,
         _tables: dict[str, pd.DataFrame] | None = None,
         _parent: PitStore | None = None,
         _poison: tuple[date, PoisonMode, int] | None = None,
@@ -115,6 +139,7 @@ class PitStore:
         self.snapshot_dir = Path(snapshot_dir)
         self.mode = mode
         self.outputs_dir = outputs_dir
+        self.text_dir = text_dir
         self._tables: dict[str, pd.DataFrame] = dict(_tables or {})
         self._arrow: dict[str, pa.Table] = {}
         self._parent = _parent
@@ -158,6 +183,10 @@ class PitStore:
             return self.snapshot_dir / "derived" / f"{name}.parquet"
         if name == "universe" and self.outputs_dir is not None:
             return self.outputs_dir / "universe_member.parquet"
+        if name == TEXT_DOCS:
+            if self.text_dir is None:
+                raise FileNotFoundError("no text_dir configured on this PitStore (run `ideation text extract`)")
+            return self.text_dir / TEXT_DOCS_FILE
         return self.snapshot_dir / f"{name}.parquet"
 
     def arrow(self, name: str) -> pa.Table:
@@ -168,6 +197,8 @@ class PitStore:
                 tbl = _poison_arrow(name, self._parent.arrow(name), *self._poison)
             else:
                 tbl = pq.read_table(self._path(name))
+                if name == TEXT_DOCS:
+                    tbl = _prepare_text_docs(tbl)
                 if "available_from" not in tbl.column_names:
                     raise LeakageError(f"dataset {name!r} has no available_from column")
             idx = pc.sort_indices(tbl["available_from"])  # stable
@@ -211,7 +242,12 @@ class PitStore:
     def poison_after(self, d: date, mode: PoisonMode = "inflate", *, seed: int = 0) -> PitStore:
         """S5 future-poison fixture: a new store whose ``data`` rows with ``available_from > d`` are poisoned."""
         return PitStore(
-            self.snapshot_dir, self.mode, outputs_dir=self.outputs_dir, _parent=self, _poison=(d, mode, seed)
+            self.snapshot_dir,
+            self.mode,
+            outputs_dir=self.outputs_dir,
+            text_dir=self.text_dir,
+            _parent=self,
+            _poison=(d, mode, seed),
         )
 
 
@@ -405,6 +441,17 @@ class PitView:
 
     def earnings_dates(self) -> pd.DataFrame:
         return self._guard(self._available("earnings_dates"), "earnings_dates")
+
+    def text_docs(self, doc_type: str, columns: Iterable[str] | None = None) -> pd.DataFrame:
+        """Concall documents of one type with ``available_from <= anchor`` (PT1 features; 05 §7.2). The date a
+        document may be used is ``available_from`` only; ``doc_date`` is month-granular and is for windows."""
+        if doc_type not in ("concall_transcript", "concall_ppt"):
+            raise LeakageError(f"unknown text doc_type {doc_type!r}")
+        sub = self._store.subtable(TEXT_DOCS, (doc_type,), lambda t: t["doc_type"] == doc_type)
+        df = self._available(sub)
+        if columns is not None:
+            df = df[[*dict.fromkeys([*columns, "available_from", "role"])]]
+        return self._guard(df, f"text_docs[{doc_type}]")
 
     def issue_size(self) -> pd.DataFrame:
         return self._guard(self._available("issue_size"), "issue_size")

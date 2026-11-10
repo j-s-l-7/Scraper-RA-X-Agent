@@ -446,6 +446,10 @@ class PitView:
         df = self._available("universe")
         return self._guard(df[df["anchor"] == self.anchor], "universe")
 
+    def has_universe(self) -> bool:
+        """True when a stored universe table is attached to the store."""
+        return self._store.has("universe")
+
     def earnings_vendor(self) -> pd.DataFrame:
         """05 O5 gate: vendor estimates, only for ``outcomes/analyst.py`` and ``features/events_vendor.py``."""
         caller = sys._getframe(1).f_globals.get("__name__", "")

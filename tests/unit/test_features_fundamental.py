@@ -202,7 +202,7 @@ def test_feature_available_from_never_exceeds_anchor(store: PitStore) -> None:
 def test_stale_fy_gives_no_features(store: PitStore) -> None:
     f = build(store, date(2021, 12, 31))
     assert f["layout"].isna().all()  # every latest FY is older than 730 days
-    assert f[REG.names()].isna().all().all()
+    assert f[REG.names(source="features_fundamental.yaml")].isna().all().all()
 
 
 @pytest.mark.parametrize("mode", ["nan", "shuffle", "inflate"])

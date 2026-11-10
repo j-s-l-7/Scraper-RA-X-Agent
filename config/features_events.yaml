@@ -1,0 +1,12 @@
+# Earnings-event feature map (05 §6.1; no estimates) (05 §6, 01 §2.5/2.6/3.6). Owner: P3. Same keys as features_fundamental.yaml, plus:
+#   trainable_from  first anchor at which the builder emits a value (earlier anchors are masked to NaN, 01 P3 #4).
+# Sets (tactical): tech = T0 price/volume columns; t1 = short-history columns (delivery, FPI sector flow, ownership,
+# events); regime = broadcast regime and macro columns. T0 = tech, T0_regime = tech + regime, T1 = tech + t1.
+# No column is in the P2 sets (core/ext/shown), so the 1Y core matrix never picks a P3 column by accident.
+version: 1
+
+features:
+  ear_3d: {family: ear, prior: 1, kind: cross_sectional, category: event, set: t1, trainable_from: 2013-04-01}
+  ear_days: {family: ear_days, prior: null, kind: cross_sectional, category: event, set: t1, trainable_from: 2013-04-01}
+  pead_drift: {family: pead, prior: 1, kind: cross_sectional, category: event, set: t1, trainable_from: 2013-04-01}
+  isna_event: {family: isna_event, prior: null, kind: cross_sectional, category: event, set: t1, trainable_from: 2013-04-01}

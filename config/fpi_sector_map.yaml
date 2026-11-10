@@ -1,0 +1,51 @@
+# NSDL FPI sector name -> company.industry_group (01 §2.6). NSDL changed its sector list on 2022-04-30; both eras are mapped.
+# Sectors not listed (Sovereign, Others, Others 4) are dropped. Several NSDL sectors may feed one group (summed).
+Automobile and Auto Components: Automobile and Auto Components
+Automobiles & Auto Components: Automobile and Auto Components
+Capital Goods: Capital Goods
+Chemicals: Chemicals
+Chemicals & Petrochemicals: Chemicals
+Coal: Metals & Mining
+Commercial Services & Supplies: Services
+Construction: Construction
+Construction Materials: Construction Materials
+Consumer Durables: Consumer Durables
+Consumer Services: Consumer Services
+Diversified: Diversified
+Diversified 2: Diversified
+Diversified Consumer Services: Consumer Services
+Fast Moving Consumer Goods: Fast Moving Consumer Goods
+Financial Services: Financial Services
+Total  Financial Services: Financial Services
+Insurance: Financial Services
+Food & Drugs Retailing: Fast Moving Consumer Goods
+Food, Beverages & Tobacco: Fast Moving Consumer Goods
+Household & Personal Products: Fast Moving Consumer Goods
+Forest Materials: Forest Materials
+General Industrials: Capital Goods
+Hardware Technology & Equipment: Information Technology
+Software & Services: Information Technology
+Telecommunications Equipment: Information Technology
+Healthcare: Healthcare
+Healthcare Equipment & Supplies: Healthcare
+Healthcare Services: Healthcare
+Pharmaceuticals & Biotechnology: Healthcare
+Hotels, Restaurants & Tourism: Consumer Services
+Information Technology: Information Technology
+Media: Media, Entertainment & Publication
+Media, Entertainment & Publication: Media, Entertainment & Publication
+Metals & Mining: Metals & Mining
+Oil & Gas: Oil, Gas & Consumable Fuels
+Oil, Gas & Consumable Fuels: Oil, Gas & Consumable Fuels
+Power: Power
+Utilities: Utilities
+Utilities 3: Power
+Real Estate Investment: Realty
+Realty: Realty
+Retailing: Consumer Services
+Services: Services
+Telecom Services: Telecommunication
+Telecommunication: Telecommunication
+Textiles: Textiles
+Textiles, Apparels & Accessories: Textiles
+Transportation: Services

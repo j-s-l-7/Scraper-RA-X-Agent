@@ -5,10 +5,17 @@ The tactical matrix needs ~200 anchors in minutes, so this module builds the sam
 vectorised numpy, under the same availability rules:
 
 * a price row is used iff ``available_from <= anchor`` AND its trade date lies in the last ``lookback`` good sessions
-  up to the anchor (a row that claims to be dated after the anchor is dropped, never used);
+  up to the anchor (a row that claims to be dated after the anchor is dropped, never used) AND it was available on
+  its own trade date (``available_from <= date``: EOD rows are usable from their date's close, so a row that arrives
+  later than that has no known timing and is not used; the snapshot has none, ``tests/lake`` asserts it);
 * the adjustment uses only the factors ``PitView.factors()`` returns (``available_from <= anchor``) with
-  ``eff_date <= anchor``: ``close_adj[t] = close[t] * prod f`` over factors with ``t < eff_date`` (02 §1.1, T-20),
-  summed in log space. ``tests/unit/test_price_panel.py`` pins it against ``back_adjust``.
+  ``eff_date <= anchor`` and ``available_from <= eff_date`` (a factor is known by its effective date, same reason):
+  ``close_adj[t] = close[t] * prod f`` over factors with ``t < eff_date`` (02 §1.1, T-20), summed in log space.
+  ``tests/unit/test_price_panel.py`` pins it against ``back_adjust``;
+* ``log_f[t]`` is the log of the factors taking effect on session ``t``. Daily returns are
+  ``close[t] / close[t-1] / exp(log_f[t])``: they need no other factor, so a return does not change when later
+  factors become known (the cumulative ``close_adj`` offset cancels in a ratio, but a corrupt later factor would
+  still contaminate it, so the event and composite code never goes through ``close_adj`` for returns).
 
 The panel is a frozen value object. Its manifest record (item ``price_panel[<n>]``) hashes the raw close, the
 traded value and the session/security axes, so a changed input changes the hash.
@@ -43,6 +50,7 @@ class PricePanel:
     value_cr: np.ndarray  # (T, N) traded value in INR crore, 0 where the security did not trade (after its first row)
     deliv: np.ndarray  # (T, N) delivery %, NaN when absent
     qty: np.ndarray  # (T, N) traded quantity (shares), 0 where not traded
+    log_f: np.ndarray  # (T, N) log of the adjustment factors with effective session t (0 where none)
     sha256: str
 
     @property
@@ -77,9 +85,10 @@ def build_panel(view: PitView, lookback: int) -> PricePanel:
     cols = _columns(store)
     pos = int(np.searchsorted(store.af_array("prices"), np.datetime64(view.anchor, "D"), side="right"))
     day = cols["day"][:pos]
+    avail = store.af_array("prices")[:pos].astype("datetime64[D]").astype("int64")
     ti = np.searchsorted(sess_days, day)
     ti_c = np.minimum(ti, len(sess_days) - 1)
-    keep = (day >= sess_days[0]) & (day <= sess_days[-1]) & (sess_days[ti_c] == day)
+    keep = (day >= sess_days[0]) & (day <= sess_days[-1]) & (sess_days[ti_c] == day) & (avail <= day)
     rows = np.flatnonzero(keep)
     sid = cols["sid"][rows]
     sids, ci = np.unique(sid, return_inverse=True)
@@ -96,8 +105,9 @@ def build_panel(view: PitView, lookback: int) -> PricePanel:
 
     # ── back-adjustment with factors known at the anchor (view.factors() is guarded on available_from) ───────
     fac = view.factors()
-    fac = fac[fac["eff_date"] <= view.anchor]
+    fac = fac[(fac["eff_date"] <= view.anchor) & (fac["available_from"] <= fac["eff_date"])]
     log_off = np.zeros(shape)
+    lf = np.zeros(shape)
     if len(fac) and len(sids):
         f_sid = fac["security_id"].to_numpy(dtype="int64")
         f_col = np.searchsorted(sids, f_sid)
@@ -106,7 +116,6 @@ def build_panel(view: PitView, lookback: int) -> PricePanel:
         eff = np.asarray(fac["eff_date"].tolist(), dtype="datetime64[D]").astype("int64")
         f_row = np.searchsorted(sess_days, eff, side="left")  # first session with date >= eff
         use = known & (f_row > 0) & (f_row < len(sess_days))
-        lf = np.zeros(shape)
         np.add.at(lf, (f_row[use], f_col_c[use]), np.log(fac["factor"].to_numpy(dtype=float)[use]))
         log_off = np.cumsum(lf[::-1], axis=0)[::-1] - lf  # sum over factors with eff index strictly after the row
     close_adj = close_raw * np.exp(log_off)
@@ -114,4 +123,4 @@ def build_panel(view: PitView, lookback: int) -> PricePanel:
     h = hashlib.sha256()
     for a in (sess_days, sids, np.ascontiguousarray(close_raw), np.ascontiguousarray(value)):
         h.update(a.tobytes())
-    return PricePanel(view.anchor, sessions, sids, close_raw, close_adj, value, deliv, qty, h.hexdigest())
+    return PricePanel(view.anchor, sessions, sids, close_raw, close_adj, value, deliv, qty, lf, h.hexdigest())

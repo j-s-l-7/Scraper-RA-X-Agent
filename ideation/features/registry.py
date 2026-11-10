@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,12 @@ from ideation.rank.transform import columns_of_kind
 
 LAYOUTS = ("core", "fin_layout", "fin_other")
 KINDS = ("cross_sectional", "broadcast")
-SETS = ("core", "ext", "shown")
+SETS = ("core", "ext", "shown", "tech", "t1", "regime")
+"""P2 sets: core / ext / shown. P3 sets (tactical): tech = T0 price and volume columns, t1 = short-history columns
+(delivery, FPI sector flow, ownership, events), regime = broadcast regime and macro columns.
+T0 = tech, T0_regime = tech + regime, T1 = tech + t1; 1Y core_mom / core_ext pick names from
+tech and regime. No P3 column is in the P2 sets, so
+``names(sets=['core'])`` never pulls a technical column into the 1Y core matrix."""
 REQUIRED = ("family", "prior", "kind", "category", "set")  # layouts / growth / need_fy / lines have defaults
 
 
@@ -41,6 +47,7 @@ class Feature:
     lines: tuple[str, ...]
     complete: bool
     source: str
+    trainable_from: date | None = None
 
     @property
     def counts_in_completeness(self) -> bool:
@@ -64,6 +71,10 @@ class Registry:
             if (sets is None or f.set in sets) and (layout is None or layout in f.layouts)
             and (source is None or f.source == source)
         ]  # fmt: skip
+
+    def trainable_from(self) -> dict[str, date]:
+        """Feature → first anchor at which it may be used in a training matrix (absent = no restriction)."""
+        return {n: f.trainable_from for n, f in self.features.items() if f.trainable_from is not None}
 
     def priors(self) -> dict[str, int]:
         """Feature → ±1 for features with a prior (the shape ``TransformSpec.priors`` / ``scr`` expect)."""
@@ -92,6 +103,17 @@ class Registry:
         return out
 
 
+def _parse_date(name: str, v: Any, source: str) -> date | None:
+    if v is None:
+        return None
+    if isinstance(v, date):
+        return v
+    try:
+        return date.fromisoformat(str(v))
+    except ValueError as exc:
+        raise RegistryError(f"{source}: {name!r} trainable_from {v!r} is not an ISO date") from exc
+
+
 def _parse_feature(name: str, meta: Mapping[str, Any], lines: Mapping[str, Any], source: str) -> Feature:
     missing = [k for k in REQUIRED if k not in meta]
     if missing:
@@ -117,6 +139,7 @@ def _parse_feature(name: str, meta: Mapping[str, Any], lines: Mapping[str, Any],
         layouts=tuple(layouts), set=meta["set"], growth=bool(meta.get("growth", False)),
         need_fy=int(meta.get("need_fy", 1)), lines=tuple(feature_lines),
         complete=bool(meta.get("complete", meta["set"] == "core")), source=source,
+        trainable_from=_parse_date(name, meta.get("trainable_from"), source),
     )  # fmt: skip
 
 

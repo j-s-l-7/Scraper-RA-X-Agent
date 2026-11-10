@@ -50,6 +50,9 @@ def persist_all(
 ) -> None:
     by_id = {s.trial_id: s for s in specs}
     with Writer.from_settings(settings).connect() as conn:
+        if run_id is None:  # a standalone `backtest report`: tie the rows to the latest finished train run
+            row = conn.execute("select max(run_id) from ideation.run where kind = 'train' and status = 'ok'").fetchone()
+            run_id = int(row[0]) if row and row[0] else None
         for k, reason in missing.items():
             if reason.startswith("failed") or reason == "no results":
                 conn.execute(

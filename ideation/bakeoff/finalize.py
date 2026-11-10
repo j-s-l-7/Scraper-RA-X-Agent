@@ -118,8 +118,15 @@ def finalize(
     # audits on the trials that matter for the gates
     audits: dict[str, Any] = {}
     focus = [x for x in dict.fromkeys([champ, RP.BASELINE, *RP.RF_LINEAGE]) if x in tds]
+    cache_dir = data_root / "bakeoff" / snap_id / "audit_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     for k in focus:
-        audits[k] = adversarial_for(tds[k], panels[tds[k].spec.config["anchor_family"]], reg)
+        cf = cache_dir / f"{tds[k].spec.config_hash[:12]}.json"
+        if cf.exists():
+            audits[k] = json.loads(cf.read_text())
+        else:
+            audits[k] = adversarial_for(tds[k], panels[tds[k].spec.config["anchor_family"]], reg)
+            cf.write_text(json.dumps(audits[k], default=float))
     gate_rows = {k: RP.gates(tds[k], fam, leakage_green=leakage_green, adversarial=audits[k]["verdict"]) for k in focus}
     june = next(s for s in specs if s.config["anchor_family"] == "june")
     bench, levels = benchmarks(panels["june"], june, reg)
@@ -244,6 +251,7 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
             "",
             f"PBO = {RP.f(p['pbo'])}, trials in the matrix = {p['n_trials']}, "
             f"median logit = {RP.f(p['median_logit'])}. "
+            f"Left out for incomplete anchor ICs: {p['dropped_incomplete']}. "
             f"IS winners: {p['best_is_counts']}",
             "",
         ]

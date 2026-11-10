@@ -113,6 +113,9 @@ def report_cmd(
     family: Annotated[str, typer.Option()] = "1Y-june",
     snap: Annotated[str, typer.Option()] = "",
     persist: Annotated[bool, typer.Option("--persist/--no-persist")] = True,
+    leakage_green: Annotated[
+        bool | None, typer.Option("--leakage-green/--leakage-red", help="Result of the leakage suites (gate 5).")
+    ] = None,
 ) -> None:
     """Tables R-A..R-D, DSR/PBO/90-10, gates and persistence from stored results (no refits)."""
     _limit_threads()
@@ -130,4 +133,4 @@ def report_cmd(
     with Writer.from_settings(settings).connect() as conn:
         ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in specs}
     panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in specs}, reg)
-    finalize(settings, family, snap_id, None, specs, panels, reg, ids, persist=persist)
+    finalize(settings, family, snap_id, None, specs, panels, reg, ids, persist=persist, leakage_green=leakage_green)

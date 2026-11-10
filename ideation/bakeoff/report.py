@@ -182,6 +182,10 @@ def pbo_for_family(tds: dict[str, TD], splits: list[CPCVSplit] | None = None) ->
     if len(cols) < 3 or splits is None:
         return None
     mat = pd.DataFrame(cols).sort_index()
+    dropped = [
+        c for c in mat.columns if mat[c].isna().any()
+    ]  # empty-selection folds / too-few consensus: no full series
+    mat = mat.drop(columns=dropped)
     is_p, oos_p = M.pbo_inputs(mat, splits)
     res = pbo_from_is_oos(is_p, oos_p)
     best = pd.Series(mat.columns[res.best_is]).value_counts()
@@ -193,6 +197,7 @@ def pbo_for_family(tds: dict[str, TD], splits: list[CPCVSplit] | None = None) ->
         "median_logit": float(np.median(res.logits)),
         "columns": list(mat.columns),
         "matrix": mat,
+        "dropped_incomplete": dropped,
     }
 
 
@@ -207,6 +212,10 @@ def gates(t: TD, fam: dict[str, Any], *, leakage_green: bool | None, adversarial
     g1 = bool(summ["mean"] >= 0.03 and summ["ci90"][0] > 0 and (ic > 0).sum() >= need)
     top = pa["top_q5_excess_cost_adj"]
     g2 = bool((top > 0).sum() >= need and top.mean() > 0)
+    # 02 §5.5 gate 2 compares a quintile MEAN with the universe MEDIAN, which is positive for any random quintile in a
+    # right-skewed cross-section; the unbiased companion compares with the equal-weight universe mean (informational)
+    ew = pa["top_q5_vs_ew_cost_adj"]
+    g2b = bool((ew > 0).sum() >= need and ew.mean() > 0)
     vb = s.get("vs_baseline")
     g3 = None if t.tid == BASELINE else (bool(vb["mean_delta"] >= -0.01 and vb["p_gt0"] >= 0.6) if vb else None)
     dsr_ok = s["dsr_ic"].get("dsr", float("nan")) >= 0.90
@@ -216,14 +225,16 @@ def gates(t: TD, fam: dict[str, Any], *, leakage_green: bool | None, adversarial
     parts = {
         "G1_ic": g1,
         "G2_cost_adj_top_quintile": g2,
+        "G2b_vs_EW_mean_info": g2b,
         "G3_vs_baseline": g3,
         "G4_dsr_pbo": g4,
         "G5_leakage_adversarial": g5,
     }
-    blocking = [v for v in parts.values() if v is not None]
+    spec_gates = {k: v for k, v in parts.items() if k != "G2b_vs_EW_mean_info"}
+    blocking = [v for v in spec_gates.values() if v is not None]
     return {
         **parts,
-        "all_pass": bool(blocking and all(blocking) and None not in parts.values()),
+        "all_pass": bool(blocking and all(blocking) and None not in spec_gates.values()),
         "need": need,
         "n": n,
         "dsr": s["dsr_ic"].get("dsr"),

@@ -100,6 +100,7 @@ def per_anchor(oos: pd.DataFrame, *, n_boot: int = N_BOOT) -> pd.DataFrame:
                 "spread_q5_q1_cost_adj": spread_q - cost,
                 "top_q5_excess": top_ex,
                 "top_q5_excess_cost_adj": top_ex - 2 * BPS / 1e4 * to5,
+                "top_q5_vs_ew_cost_adj": float(r[(q == 5).to_numpy()].mean() - r.mean()) - 2 * BPS / 1e4 * to5,
                 "hit_top": float((r[(d == 10).to_numpy()] > med).mean()),
                 "top_ret": float(r[(d == 10).to_numpy()].mean()),
                 "bottom_ret": float(r[(d == 1).to_numpy()].mean()),

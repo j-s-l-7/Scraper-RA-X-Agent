@@ -929,3 +929,224 @@ Outputs (not in git): `outputs/<snap>/features_tech.parquet`, `regime_history.pa
 - CPI / IIP are NaN at late anchors (series stop); the broadcast scaler sets missing to the training mean, so a regime model trained on 2014-2025 sees "average inflation" in 2026.
 - 12 of 17 regime columns are only weakly informative on a 36-month window (36 distinct values per column); the 90/10 rule decides whether regime stays.
 - Ownership changes are updated once a year (April) and are stale between; they are T1 only.
+
+## MS2: tactical bake-off (family `tactical-3M`, branch `phase-ms2-tactical-bakeoff`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`. `ideation trials register --family tactical-3M` inserted 25 rows (N = 25;
+the family was empty before). `config/trials_tactical.yaml` is not edited after registration (any change is a new hash and a
+new trial). `ideation init-db` is never run from this worktree; the real ledger is already at version 12.
+
+### Protocol frozen BEFORE any fit (forking-path guard)
+1. **Horizons.** 3M is the only selecting horizon. 1M comes from the SAME fits (3M target, embargo 3 anchors) scored against
+   the 1M labels of the same test anchors; it therefore inherits the stricter 3M embargo. Never used for selection.
+2. **Target.** Rank-gauss of `ret_total` (3M) within the trial's universe at each anchor (U_score_T; U_score_T with
+   ADV63 >= 0.5 cr for #21). R1 = `rank.transform.xs_transform` (global spec) per anchor; one matrix per (feature set,
+   row subset), cached; legal because R1 is per cross-section.
+3. **Feature sets by source/set, never `reg.names()` globally.** T0 = `tech`; T0_regime = `tech` + `regime` (broadcast columns
+   passed to `make_learner(broadcast=...)`); T1 = `tech` + `t1` (`isna_event` passes through raw, it is already a flag);
+   T1_text = T1 + `text`; T1_vsurp = T1 + `vendor`. `scr` gets the priors of the trial's own columns only.
+4. **Windows.** Rolling 36 usable anchors, 12-anchor test blocks, purge `label_end <= T` (03 C3), embargo 3 anchors.
+   T0 counted OOS 2014-01..2025-06 (12 blocks); the first block trains on fewer than 36 anchors (history starts 2011-01).
+   T1 / VSURP: train_start 2020-04-30, counted OOS 2023-01..2025-06; TEXT: train_start 2019-01-31, counted OOS 2022-01..2025-06.
+   Blocks start at each trial's own counted-OOS start; short first-window training sets are reported.
+5. **Subset trials (#17-20).** Filter to `isna_text == 0` (resp. `isna_vsurp == 0`) BEFORE R1 so nothing is zero-filled into
+   an uncovered name. `allow_vendor_estimates=True` is read from the trial config only. Paired control = the same learner on
+   T1 columns only, same covered rows, same folds, same `train_start` (a protocol arm, NOT a new trial, not in N). Paired
+   per-anchor delta-IC with a stationary bootstrap (>= 10,000). Secondary: the full-universe T1 trial scores restricted to the
+   same names. #19-20 run only if the vendor gate (re-run with P3's `ear_3d`) passes.
+6. **Selection pool for 90/10.** Window-comparable pool = the 21 fitted/composite trials with counted OOS 2014-01..2025-06
+   (#1-13, #21, #25, plus consensus #22-24 for IC, no stability => z = 0). The short-window trials (#14-20) are compared
+   only by paired deltas over their own window (vs the T0 trial restricted to the same anchors / same names) and by their own
+   IC; they are not z-scored against the long-window pool. Selecting rule: `0.9 z(mean OOS IC, 3M) + 0.1 z(stability)`.
+7. **Consensus scalar scores** (members = the 10 `consensus_members`, p = per-anchor percentile): CONS_MAJ_T = the 6th largest
+   p across the members (>= 0.9 iff >= 6 members have the name in D10); CONS_UNAN_T = min over members of p (>= 0.9 iff all 10
+   have it in D10); ENS_RANKAVG_T = mean p. These scores feed IC, DSR and PBO; the set-level C_maj / C_unan results are reported.
+8. **CPCV rule.** Top 3 by the 90/10 score among the *fitted single-model* trials plus the baselines; a consensus trial in the
+   top 3 is replaced by running CPCV for its members only if budget allows, otherwise reported as "not run" with the reason.
+   Baselines (no fit): T_EW_SIGNPRIOR and MOM_12_1 (and the other 3.6 benchmarks). CPCV: 12 groups over 2011-01..2025-06 (66
+   splits, 11 paths), embargo 3.
+9. **PBO** = CSCV, S = 12, on the T x N matrix of monthly OOS ICs of the long-window pool; trials with shorter series are
+   excluded from the matrix (reported). **DSR** on the IC series and the cost-adjusted Q5-Q1 series with N = 25 and the
+   cross-trial variance of per-observation Sharpe ratios of the pool.
+10. **Baseline that ships if the champion fails.** Non-inferiority (C9, 02 5.5 gate 3) is tested against T_EW_SIGNPRIOR (the
+    sign-prior composite of the same tactical features) AND against MOM_12_1; if the champion fails the gates, the better of
+    the two baselines by mean 3M IC ships and the report says so. Tactical gates (02 5.5): mean IC >= 0.02 with NW t >= 2.0
+    (lag 2 for 3M, 0 for 1M), 95% block-bootstrap CI excludes 0, DSR >= 0.95, cost-adjusted Q5-Q1 > 0 after 2 x 12 bps x
+    measured turnover, positive in >= 55% of months, PBO <= 0.5, adversarial AUC <= 0.70.
+11. **Storage.** `ideation.model` row per (trial, horizon) with status `candidate` (never `champion`: promotion is manual, A12)
+    feeds `wf_result`; `oos_prediction` holds the 3M rows (no horizon column); 1M scores live in parquet + `wf_result` rows of
+    the 1M model; `experiment_trial` gets status, n_oos, ic_series, spread_series, run_id.
+12. **Compute.** <= 4 threads, `nice -n 10`, per-(trial, fold) checkpoints keyed by config hash + code version. Bootstrap >= 10,000.
+    Fixed hyperparameters (no tuning); lgbm/xgb weak-signal attenuation (E1 T-05) is a known limitation and is reported.
+
+### Hygiene disclosure
+During orientation a scratch script read `labels.parquet` directly (outside `load_labels`) and printed aggregates over all
+horizons (anchor ranges, non-null shares, exit-type counts, the first rows of the 2010 anchors). No sealed return value was
+printed or used. Every later label read goes through `load_labels(unsealed_only(...))`.
+
+### What was built (MS2)
+- `ideation/tactical/` (own Typer sub-app `ideation tactical …`, one `add_typer` line in `ideation/cli.py`): `data.py` (panel, R1
+  per feature set / row subset, rank-gauss target, labels only via `load_labels(unsealed_only(...))`, anchors <= 2025-06-30),
+  `engine.py` (WFO and CPCV with per-(trial, fold|split) parquet checkpoints keyed by config hash + `CODE_VERSION`),
+  `evalx.py` (per-anchor metrics, IC inference, paired deltas, DSR, CSCV PBO, 90/10, gates, consensus scores), `report.py`,
+  `persist.py` (model / wf_result / oos_prediction / experiment_trial), `vendor.py` (vendor features, only when the trial config
+  sets `allow_vendor_estimates` and the gate passed), `cli.py`. `tests/unit/test_tactical.py` (4 tests: sealed-anchor
+  discipline through `load_labels`, checkpoint resume + C3 purge + embargo, 66 CPCV splits, consensus scalar definitions);
+  `tactical` added to the static-ban scan. `events_vendor.validity_gate_p3` + `ideation text vendor-gate --ear p3`.
+- No migration. `ideation init-db` never run.
+
+### Commands and runtimes (Mac shared with MS1; `nice -n 10`, <= 4 threads)
+| command | result | wall time |
+|---|---|---|
+| `ideation trials register --family tactical-3M` | 25 rows (N = 25) | 2 s |
+| `ideation text vendor-gate --ear p3` | PASS | ~3 min |
+| `ideation tactical wfo` (21 fitted trials + 4 paired control arms, resumable) | all done | **about 85 min of compute** (RF_T0 554 s, MLP 373 s, SVR 645 s, RF_T0_REGIME 503 s, RF_T0_ADV05 399 s, RF_T0_9010SEC 426 s, RF_T1 219 s; linear/boosters 12-105 s) |
+| `ideation tactical cpcv` (SCR_T0, OLS_T0, RIDGE_T0 + T_EW_SIGNPRIOR; 66 splits each) | done | 87 s |
+| `ideation tactical report --persist` | done (adversarial AUC ~8 min, persistence ~10 min) | ~20 min |
+
+### Vendor validity gate re-run with P3's `ear_3d` (instead of PT2's local copy)
+Events 2015-01-01..2025-06-30, vendor events matched to P3 `ear_3d` at monthly anchors (same event: `ear_days` agrees with the
+vendor event date; 99.86% of 19,093 events matched): **n = 19,066, 42 quarters, rho = 0.3180, t (quarter-clustered CR1) = 37.20 ->
+PASS** (PT2 local copy: rho 0.318, t 37.5). Fama-MacBeth mean rho 0.321, t 49.8, 100% of quarters positive. Trials #19-20 ran.
+
+### Results, horizon 3M (primary), counted OOS 2014-01..2025-06, 138 monthly anchors, U_score_T
+IC = mean per-anchor rank IC vs 3M total return; t = Newey-West lag 2; CI95 = stationary block bootstrap (10,000); cost-adj
+Q5-Q1 = 3M spread minus 2 x 12 bps x (turnover Q5 + turnover Q1) measured month on month (02 5.5 literal; a conservative
+full-round-trip variant is in the report); DSR/PBO below.
+| trial | IC | NW t | CI95 | % months > 0 | cost-adj Q5-Q1 | 1M IC (lag 0 t) |
+|---|---|---|---|---|---|---|
+| ENS_RANKAVG_T | **0.1258** | 6.39 | [0.083, 0.167] | 84.1% | 0.0519 | 0.1014 (7.99) |
+| CONS_MAJ_T | 0.1240 | 6.33 | [0.082, 0.165] | 83.3% | 0.0504 | 0.0998 |
+| CONS_UNAN_T | 0.1225 | 6.99 | [0.085, 0.159] | 85.5% | 0.0490 | 0.0996 |
+| SCR_T0 | 0.1209 | 5.22 | [0.072, 0.170] | 79.7% | 0.0386 | 0.1045 |
+| RIDGE_T0 | 0.1195 | 5.93 | [0.076, 0.162] | 83.3% | 0.0458 | 0.0945 |
+| RIDGE_T0_REGIME | 0.1197 | 5.95 | [0.076, 0.162] | 83.3% | 0.0457 | 0.0945 |
+| OLS_T0 | 0.1187 | 5.94 | [0.075, 0.161] | 83.3% | 0.0455 | 0.0940 |
+| RF_T0_ADV05 (own universe) | 0.1122 | 5.88 | [0.071, 0.152] | 83.3% | 0.0445 | 0.0887 |
+| PRIDGE_T0 | 0.1097 | 6.53 | [0.074, 0.144] | 86.2% | 0.0466 | 0.0886 |
+| RF_T0_9010SEC | 0.1051 | 5.72 | [0.066, 0.143] | 83.3% | 0.0409 | 0.0858 |
+| RF_T0 | 0.1037 | 5.68 | [0.066, 0.141] | 84.1% | 0.0431 | 0.0841 |
+| **T_EW_SIGNPRIOR (baseline)** | **0.1002** | 5.38 | [0.059, 0.143] | 79.7% | 0.0443 | 0.0758 |
+| XGB_T0 | 0.0993 | 5.78 | [0.063, 0.134] | 83.3% | 0.0392 | 0.0785 |
+| MLP_T0 | 0.0973 | 6.24 | [0.065, 0.128] | 84.1% | 0.0444 | 0.0787 |
+| LGBM_T0 | 0.0948 | 5.72 | [0.061, 0.128] | 84.1% | 0.0382 | 0.0770 |
+| RF_T0_REGIME | 0.0942 | 4.98 | [0.056, 0.134] | 79.7% | 0.0386 | 0.0823 |
+| SVR_T0 | 0.0844 | 5.94 | [0.054, 0.114] | 85.5% | 0.0375 | 0.0714 |
+| LGBM_T0_REGIME | 0.0825 | 4.76 | [0.046, 0.120] | 77.5% | 0.0340 | 0.0762 |
+| MOM_12_1 (benchmark) | 0.0716 | 4.31 | [0.036, 0.106] | 76.1% | 0.0463 | 0.0444 |
+| LOWVOL (benchmark) | 0.0920 | 4.41 | [0.049, 0.137] | 68.8% | 0.0125 | 0.0946 |
+
+Short-window trials (own windows, not in the selection pool): RF_T1 0.0933, LGBM_T1 0.0972, RIDGE_T1 0.0983 (2023-01..2025-06,
+30 anchors); RF_T1_TEXT 0.0582 and RIDGE_T1_TEXT 0.0741 (covered names, 2022-01.., 42 anchors); RF_T1_VSURP 0.0398 and
+RIDGE_T1_VSURP 0.0537 (vendor-covered names, 2023-01.., 30 anchors).
+
+### Selection, DSR, PBO, gates (03 C9, 02 5.5)
+- **90/10** (0.9 z(IC) + 0.1 z(stability)) over the 18 long-window trials: ENS_RANKAVG_T 1.20, CONS_MAJ_T 1.08, CONS_UNAN_T 0.99, SCR_T0
+  0.88, OLS_T0 0.84, RIDGE_T0 0.80, RIDGE_T0_REGIME 0.80, RF_T0_ADV05 0.45 ... SVR_T0 -1.51, LGBM_T0_REGIME -1.67. Stability is NaN
+  (z = 0) for T_EW, SVR (cost, below) and the consensus trials. Top 3 fitted single models: SCR_T0, OLS_T0, RIDGE_T0.
+- **DSR** (N = 25, per-observation Sharpe of the 3M IC series against the pool's SR variance): 1.000 for every pool trial on the IC
+  series (0.980-0.999 on the cost-adjusted spread series). The pool's IC-IR is 0.5-0.85 per month with 138 observations, so the
+  gate is not binding here (unlike 1Y).
+- **PBO** (CSCV, S = 12, T = 138 x 18 trials): **0.232**.
+- **Champion by the 90/10 rule: ENS_RANKAVG_T.** Gates: IC >= 0.02 PASS (0.1258); NW t >= 2 PASS (6.39); CI95 excludes 0 PASS;
+  DSR >= 0.95 PASS; cost-adj Q5-Q1 > 0 PASS (+5.2%); months > 0 >= 55% PASS (84%); PBO <= 0.5 PASS; **adversarial AUC <= 0.70
+  FAIL (T0 mean 0.945, T1 0.958)**; non-inferiority vs T_EW_SIGNPRIOR PASS (delta IC +0.0257, CI90 [+0.010, +0.041], P(>0) = 1.00);
+  vs MOM_12_1 PASS (delta +0.054, CI90 [+0.027, +0.080]).
+- **Decision under the frozen rule: the baseline ships (T_EW_SIGNPRIOR, the better baseline by IC: 0.1002 vs MOM_12_1 0.0716), because the
+  champion fails the blocking adversarial-validation gate.** Plain reading for the owner: the gate that fails is an input-level
+  property that applies equally to T_EW_SIGNPRIOR (same R1 matrix), and on every performance criterion the champion beats the baseline.
+  The owner may decide whether the AUC finding (below) is disqualifying; per 03 C9 a model is not promoted automatically
+  (`candidate` only, A12).
+
+### Adversarial validation (02 6.1) and why it fails
+Train-vs-test classifier AUC on the R1 inputs (broadcast columns excluded), per WFO fold: T0 0.91-1.00, mean 0.945 (T1 0.93-0.98).
+Top separating features are the rank-gauss of the binary breakout columns (`brk_*`, `brkdn_*`) and their `isna_` flags: a rank-gauss of a
+0/1 column is an anchor-dependent constant pair, i.e. a hidden regime proxy, plus `trainable_from` masking in 2014-15. With binary
+breakout and flag columns dropped the T0 mean AUC is still 0.763 (group RRG columns, 52-week distance), T1 0.884 (`prom_chg_1y`,
+`fpi_sector_flow_3m`). The per-cross-section rank transform therefore does not make these inputs stationary across 3-year windows.
+The 02 6.1 remedy (drop or re-transform the top shift feature and rerun as a NEW trial) was NOT done: it would add trials to
+N after seeing results. It is the first recommended follow-up.
+
+### Tier, regime, 90/10-a, universe and paired arms (per-anchor delta IC, stationary bootstrap 10,000)
+| arm (a - b) | n | IC a | IC b | delta | CI90 | P(delta > 0) |
+|---|---|---|---|---|---|---|
+| RF_T0_REGIME - RF_T0 | 138 | 0.0942 | 0.1037 | -0.0095 | [-0.025, +0.004] | 0.13 |
+| LGBM_T0_REGIME - LGBM_T0 | 138 | 0.0825 | 0.0948 | -0.0123 | [-0.030, +0.003] | 0.10 |
+| RIDGE_T0_REGIME - RIDGE_T0 | 138 | 0.1197 | 0.1195 | +0.0001 | [-0.0004, +0.0006] | 0.66 |
+| RF_T0_9010SEC - RF_T0 | 138 | 0.1051 | 0.1037 | +0.0013 | [-0.0004, +0.0031] | 0.90 |
+| RF_T0_ADV05 - RF_T0 (different universe) | 138 | 0.1122 | 0.1037 | +0.0085 | [+0.003, +0.014] | 1.00 |
+| RF_T1 - RF_T0 (2023+ anchors) | 30 | 0.0933 | 0.0851 | +0.0082 | [-0.005, +0.020] | 0.85 |
+| LGBM_T1 - LGBM_T0 | 30 | 0.0972 | 0.0804 | +0.0168 | [+0.003, +0.029] | 0.97 |
+| RIDGE_T1 - RIDGE_T0 | 30 | 0.0983 | 0.0900 | +0.0083 | [0.000, +0.017] | 0.95 |
+| RF_T1_TEXT - same learner on T1 columns, same covered rows/folds | 42 | 0.0582 | 0.0626 | -0.0045 | [-0.014, +0.004] | 0.21 |
+| RIDGE_T1_TEXT - control | 42 | 0.0741 | 0.0797 | -0.0057 | [-0.013, +0.001] | 0.10 |
+| RF_T1_VSURP - control | 30 | 0.0398 | 0.0362 | +0.0036 | [-0.009, +0.015] | 0.70 |
+| RIDGE_T1_VSURP - control | 30 | 0.0537 | 0.0555 | -0.0017 | [-0.009, +0.005] | 0.34 |
+- **Regime** does not help: it hurts the trees (-0.010 / -0.012, P(>0) 0.10-0.13) and cannot matter for a linear model (a
+  broadcast column shifts all scores at an anchor equally; the ridge IC is identical to 4 decimals by construction).
+- **T1 tier** (delivery, FPI, ownership, event features) adds +0.008 to +0.017 IC over T0 on the same 2023+ anchors; only LGBM's CI90
+  excludes 0. Suggestive, not conclusive (30 anchors).
+- **Text (#17-18)** does not add on covered names (both slightly negative vs the matched control). **Vendor surprise (#19-20)** adds
+  nothing (RF +0.004, ridge -0.002, CIs straddle 0). Both are reported as negative results. These covered subsets are tiny
+  (~7.7k and ~10.8k training rows in the first fold) and their IC levels (0.04-0.08) are well below the full-universe T1 models:
+  the covered names are a different, harder cross-section.
+- **90/10 reading (a)** (RF_T0_9010SEC) is indistinguishable from RF_T0 (+0.0013).
+- **Models**: linear models (scr, ridge, ols, 0.119-0.121) beat the forest (0.104), MLP, XGB, LGBM (0.095, attenuation of weak
+  signals, the E1 T-05 finding) and SVR (0.084); PRIDGE 0.110. The sign-prior composite alone (0.100) is only 0.02 below the best
+  single model and statistically close to it. **Averaging the 10 members' ranks (ENS_RANKAVG_T) is the best result** (0.1258), +0.0257
+  over the composite.
+- Consensus sets (3M): C_maj (>= 6 of 10 members in D10, mean size 57 names) beats the universe median by +5.3%; C_unan (all 10
+  agree, mean 2.4 names, valid in few months) by +1.7%; the size-matched top-|C| of the rank average +5.9%. Agreement narrows the
+  set but does not improve the mean over the rank average.
+
+### CPCV (12 groups, k = 2, 66 splits, 11 paths, embargo 3) over all 174 anchors 2011-01..2025-06
+| trial | mean path IC | min..max path | NW t (mean) | cost-adj Q5-Q1 | % months > 0 |
+|---|---|---|---|---|---|
+| RIDGE_T0 | 0.1523 | 0.1505..0.1546 | 8.43 | 0.0608 | 84.0% |
+| OLS_T0 | 0.1497 | 0.1479..0.1518 | 8.52 | 0.0601 | 83.8% |
+| SCR_T0 | 0.1462 | 0.1447..0.1473 | 6.57 | 0.0491 | 79.2% |
+| T_EW_SIGNPRIOR (no fit) | 0.1194 | n/a | 6.53 | 0.0523 | 80.5% |
+| MOM_12_1 (no fit) | 0.0913 | n/a | 5.35 | 0.0500 | 77.5% |
+The linear models are stable across paths (spread 0.002-0.004) and beat the baseline by ~0.03 on all 174 anchors. CPCV IC is higher
+than WFO because it trains on both sides of each test group and includes 2011-13. **Not run:** CPCV for the champion
+ENS_RANKAVG_T and its heavy members. Measured per-split cost on ~160k training rows: RF 238 s (~4 h for 66 splits), MLP 108 s
+(~2 h), SVR 67 s (~1.2 h), LGBM 5 s; the consensus needs all 10 members, far above the 2.5 h CPCV budget. Hyperparameters were
+not touched to make it fit.
+
+### Honest caveats on the magnitude
+- IC 0.10-0.13 at 3M is far above what such price features usually give. It is concentrated: mean IC by year for the ensemble
+  2014 0.14, 2015 0.12, 2016 0.12, 2017 0.20, **2018 0.21, 2019 0.23**, 2020 -0.03, 2021 0.02, 2022 0.18, 2023 0.09, 2024 0.14, 2025 0.05 (H1);
+  T_EW -0.04 in 2020 and -0.01 in 2025; LOWVOL alone 0.25 in 2018-19. It is mostly a low-volatility / small-illiquid-name effect that
+  works in drawdown regimes (2018-19 small-cap crash, 2022) and fails in 2020-21. By liquidity (T_EW, RF, MOM, LOWVOL IC): ADV < 0.5 cr
+  0.06/0.07/0.05/0.04; 0.5-2 cr 0.13/0.16/0.09/0.12; 2-10 cr 0.11/0.12/0.07/0.09; > 10 cr 0.08/0.08/0.05/0.07, so it survives in liquid names
+  but at roughly 70-80% of the headline value.
+- Monthly anchors with 3M labels overlap; the t statistics use NW lag 2 and a block bootstrap, but the effective sample is smaller than 138.
+- Survivorship: universe includes delisted names with the P1 exit policy, but sector/industry labels and the stock-company link are today's.
+- Cost-adjusted spreads charge the measured month-on-month turnover; a real 3-tranche book would also pay full round trips (the report's
+  `spread_cost_full`, 48 bps per 3M tranche, lowers the champion's Q5-Q1 from 0.0536 to 0.0488 and stays positive).
+- The 1M horizon (same fits, 3M target, embargo 3, never selecting): IC 0.071-0.105, ensemble 0.1014, MOM_12_1 only 0.044.
+
+### Deviations and risks (plain)
+1. **Champion fails a blocking gate; the baseline ships by the frozen rule.** The AUC failure is structural (above), shared by the baseline.
+2. **90/10 stability computed with a reduced importance protocol** (3 repeats, 2,000 seeded test rows per fold, instead of 20 repeats on all rows;
+   the same for every trial); **SVR stability not computed** (explicit-loop RBF predict, ~2 min per 14k rows) and the consensus/T_EW trials have none, so
+   z = 0 for them. Stability is 10% of the score; with it ignored the order of the top group does not change (the ensemble leads by IC).
+3. **No CPCV for the champion/its heavy members** (cost, above). CPCV covers the top 3 fitted single models and the baselines.
+4. Text and vendor trials run on covered subsets with paired control arms (protocol arms, not trials, not in N = 25); #19-20 YAML configs
+   do not declare `subset`; the vendor-covered subset (`isna_vsurp == 0`) was applied by the driver because of the gate key `vsurp_validity`.
+5. Short first training windows: the first T0 fold trains on 31 anchors (history starts 2011-01, embargo 3); T1/VSURP first block 28 anchors (train_start 2020-04-30), TEXT 31 (train_start 2019-01-31).
+6. The CPCV and WFO IC windows differ (174 vs 138 anchors); do not compare their levels.
+7. T-04/T-05 learner caveats from E1 stand: lgbm/xgb attenuate weak signals (here: LGBM 0.095, XGB 0.099 vs ridge 0.120); hyperparameters were not tuned.
+8. `ideation.model` rows (status `candidate`, two per trial: 3M and 1M), `wf_result` (138 rows per model, 3M and 1M), `oos_prediction`
+   (3M rows only; ~162k per long-window trial) and `experiment_trial` (status `ok`, `ic_series`, `spread_series`) were written to the live `ideation` schema.
+   `wf_result.ic_lo/ic_hi` are NULL (not computed per anchor). `rank_calibration` is MS3's. Controls/benchmarks are in parquet/report only.
+9. Data and checkpoints: `IDEATION_DATA_DIR/tactical_ms2/{wfo,cpcv,scores,MS2_REPORT.md,CPCV_REPORT.md,decision.json,adversarial_auc.json}` (not in git).
+
+### Acceptance
+See the command table of this entry; ruff, `pytest -m "not lake"`, `pytest -m lake`, secret scan results are in the final line below.
+| check | result |
+|---|---|
+| `uv run ruff check .` | All checks passed |
+| `uv run pytest -p no:xdist -m "not lake"` | **555 passed**, 1 skipped, 1 xfailed, 1 xpassed (E1's documented xfail/xpass) in 140 s (includes 4 new MS2 tests and the static-ban scan of `ideation/tactical`) |
+| `uv run pytest -p no:xdist -m lake` | **101 passed, 1 failed** in 413 s. The failure is `tests/lake/test_e1_ddl.py::test_register_then_train_guard`: it registers `1Y-june` inside a rolled-back transaction and asserts `n_family == 50`, but the live `experiment_trial` already holds MS1's 50 `1Y-june` rows (and this test's hashes are new inserts), so it sees 100. It is an interaction with the concurrent MS1 registration in the shared real schema, not with MS2 code (MS2 touched nothing in `trials/`). It needs the test to count only its own rows (or run before MS1 registers). |
+| `uv run python scripts/secret_scan.py --all` | clean |

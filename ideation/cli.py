@@ -22,6 +22,7 @@ app.add_typer(trials_app, name="trials")
 
 
 def _register_subapps() -> None:
+    from ideation.bakeoff.cli import backtest_app, train_cmd
     from ideation.features.cli import app as features_app
     from ideation.features.tech_cli import app as features_tech_app
     from ideation.labels.cli import app as labels_app
@@ -33,6 +34,8 @@ def _register_subapps() -> None:
     app.add_typer(text_app, name="text")
     app.add_typer(features_app, name="features")
     app.add_typer(features_tech_app, name="features-tech")
+    app.add_typer(backtest_app, name="backtest")
+    app.command("train")(train_cmd)
 
 
 _register_subapps()

@@ -84,7 +84,8 @@ def adversarial_for(td: RP.TD, panel: Panel, reg: Registry) -> dict[str, Any]:
         tr = [pd.Timestamp(a) for a in info["train_anchors"]]
         out[name] = audit.fold_adversarial(x, m.meta, tr, pd.Timestamp(name), m.broadcast)
         out[name]["ood_share"] = audit.ood_share(x, m.meta, tr, pd.Timestamp(name))
-    worst = max((v["auc_values"] for v in out.values()), default=float("nan"))
+    counted = {str(c.date()) for c in td.counted}
+    worst = max((v["auc_values"] for k, v in out.items() if k in counted), default=float("nan"))
     return {"folds": out, "worst_auc": worst, "verdict": audit.verdict(worst) if worst == worst else None}
 
 

@@ -35,7 +35,7 @@ def is_text(spec: TrialSpec) -> bool:
 
 
 def results_dir(root: Path, snap_id: str, spec: TrialSpec) -> Path:
-    d = root / snap_id / "results" / spec.config_hash[:12]
+    d = root / "bakeoff" / snap_id / "results" / spec.config_hash[:12]
     d.mkdir(parents=True, exist_ok=True)
     return d
 

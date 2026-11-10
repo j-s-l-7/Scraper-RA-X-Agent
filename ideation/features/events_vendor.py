@@ -175,4 +175,52 @@ def validity_gate(view: PitView, params: dict[str, Any], *, min_events: int = 50
     }  # fmt: skip
 
 
-__all__ = ["VendorNotAllowedError", "build_vendor", "clustered_spearman", "surprise_pct", "validity_gate"]
+def validity_gate_p3(view: PitView, params: dict[str, Any], ear_panel: pd.DataFrame, sessions: np.ndarray,
+                     *, min_events: int = 500) -> dict[str, Any]:  # fmt: skip
+    """Same 05 §6.3 gate with P3's ``ear_3d`` (``features/events.py``, as stored in ``features_tech`` at monthly anchors)
+    instead of the local computation. A vendor event is matched to the P3 value of its (security, anchor) when the
+    sessions-since-event count ``ear_days`` agrees with the vendor event date (same event, not a later one); each event is
+    kept once, at its first anchor. ``ear_panel``: anchor, security_id, ear_3d, ear_days; ``sessions``: sorted
+    datetime64[D] exchange sessions."""
+    lo, hi = pd.Timestamp(params["gate_from"]), pd.Timestamp(params["gate_to"])
+    ev = _events(view)
+    ev = ev[(ev["event_date"] >= lo) & (ev["event_date"] <= hi) & np.isfinite(ev["surp"])]
+    smap = view.securities()
+    smap = smap[smap["company_id"].notna()].assign(
+        vf=pd.to_datetime(smap["valid_from"]), vt=pd.to_datetime(smap["valid_to"]),
+        company_id=lambda d: d["company_id"].astype("int64"),
+    )  # fmt: skip
+    m = ev.merge(smap[["company_id", "security_id", "vf", "vt"]], on="company_id", how="inner")
+    m = m[(m["vf"] <= m["event_date"]) & (m["event_date"] <= m["vt"])].drop_duplicates(["company_id", "event_date"])
+    sess = np.asarray(sessions, dtype="datetime64[ns]")
+    m["e_idx"] = np.searchsorted(sess, m["event_date"].to_numpy(dtype="datetime64[ns]"))
+    ep = ear_panel.dropna(subset=["ear_3d", "ear_days"]).copy()
+    ep["anchor"] = pd.to_datetime(ep["anchor"])
+    ep["a_idx"] = np.searchsorted(sess, ep["anchor"].to_numpy(dtype="datetime64[ns]"), side="right") - 1
+    ep = ep.merge(m[["security_id", "event_date", "e_idx", "surp", "beat"]], on="security_id", how="inner")
+    ep = ep[(ep["event_date"] <= ep["anchor"]) & (ep["anchor"] - ep["event_date"] <= pd.Timedelta(days=125))]
+    ep = ep[np.minimum(ep["a_idx"] - ep["e_idx"], 120) == ep["ear_days"].astype(int)]
+    ep = ep.sort_values("anchor").drop_duplicates(["security_id", "event_date"])
+    matched = len(ep)
+    q = ep["event_date"].dt.to_period("Q").astype(str).to_numpy()
+    main = clustered_spearman(ep["surp"].to_numpy(), ep["ear_3d"].to_numpy(), q)
+    per_q = (
+        ep.assign(q=q).groupby("q")
+        .apply(lambda d: d["surp"].corr(d["ear_3d"], method="spearman") if len(d) >= 10 else np.nan, include_groups=False)
+        .dropna()
+    )  # fmt: skip
+    fm_t = float(per_q.mean() / (per_q.std(ddof=1) / np.sqrt(len(per_q)))) if len(per_q) > 2 else float("nan")
+    passed = bool(main["n"] >= min_events and main["rho"] > 0 and main["t"] > 3)
+    return {
+        "ear_source": "P3 features/events.py (features_tech.ear_3d at monthly anchors)",
+        "gate_from": str(lo.date()), "gate_to": str(hi.date()),
+        "estimator": "pooled Spearman, t from quarter-clustered (CR1) SE",
+        "n_vendor_events_in_window": int(len(m)), "n_events": main["n"], "match_rate": matched / max(len(m), 1),
+        "n_quarters": main["clusters"], "rho": main["rho"], "t_clustered": main["t"],
+        "fama_macbeth_mean_rho": float(per_q.mean()), "fama_macbeth_t": fm_t,
+        "share_positive_quarters": float((per_q > 0).mean()), "passed": passed,
+    }  # fmt: skip
+
+
+__all__ = ["VendorNotAllowedError", "build_vendor", "clustered_spearman", "surprise_pct", "validity_gate",
+           "validity_gate_p3"]

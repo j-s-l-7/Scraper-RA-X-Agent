@@ -121,15 +121,26 @@ def register(app: typer.Typer) -> None:
                       f"{time.perf_counter() - t0:.1f} s -> {out}")  # fmt: skip
 
     @app.command("vendor-gate")
-    def vendor_gate_cmd() -> None:
+    def vendor_gate_cmd(
+        ear: Annotated[str, typer.Option(help="local (PT2's own ear_3d) | p3 (features/events.py via features_tech)")] = "local",
+    ) -> None:
         """05 §6.3 validity gate for the vendor-surprise challenger: Spearman(surprise, ear_3d), quarter-clustered t."""
-        from ideation.features.events_vendor import validity_gate
+        from ideation.features.events_vendor import validity_gate, validity_gate_p3
 
         settings = get_settings()
         store = _store(settings)
         params = yaml.safe_load((settings.config_dir / "features_vendor.yaml").read_text())["params"]
         t0 = time.perf_counter()
         view = store.as_of(store.calendar.good[-1].astype(object), record=False)
+        if ear == "p3":
+            ep = pd.read_parquet(store.outputs_dir / "features_tech.parquet",  # type: ignore[operator]
+                                 columns=["anchor", "security_id", "ear_3d", "ear_days"])  # fmt: skip
+            res = validity_gate_p3(view, params, ep, store.calendar.good)
+            res["snap_id"] = store.snap_id
+            (store.outputs_dir / "vendor_gate_p3.json").write_text(json.dumps(res, indent=1, default=str))  # type: ignore[operator]
+            console.print({k: v for k, v in res.items()})
+            console.print("vendor validity gate with P3 ear_3d: [bold]" + ("PASS" if res["passed"] else "FAIL") + "[/bold]")
+            return
         res = validity_gate(view, params)
         res["snap_id"] = store.snap_id
         (store.outputs_dir / GATE_FILE).write_text(json.dumps(res, indent=1, default=str))  # type: ignore[operator]

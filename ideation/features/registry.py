@@ -19,7 +19,7 @@ from ideation.rank.transform import columns_of_kind
 
 LAYOUTS = ("core", "fin_layout", "fin_other")
 KINDS = ("cross_sectional", "broadcast")
-SETS = ("core", "ext", "shown")
+SETS = ("core", "ext", "shown", "text", "vendor")
 REQUIRED = ("family", "prior", "kind", "category", "set")  # layouts / growth / need_fy / lines have defaults
 
 

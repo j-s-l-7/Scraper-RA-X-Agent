@@ -1,0 +1,36 @@
+# Text feature map (05 §7.3, PT2). Company-level point-in-time features from concall transcripts and presentations.
+# Owner: PT2. Same per-feature keys as config/features_fundamental.yaml (registry.py validates them).
+#
+# set: text   -> own tier; never part of the 1Y `core`/`ext` matrices and never in feature_complete (complete: false).
+# Definitions (A = anchor; a document is visible iff available_from <= A, 05 §7.2; windows use the month-granular doc_date):
+#   cur   the visible concall_transcript with the latest doc_date, doc_date >= A - 200 d
+#   prev  the visible concall_transcript with the latest doc_date in [cur - 400 d, cur - 60 d]
+#   ppt_* the same cur/prev logic on concall_ppt documents
+# Values are RAW. NaN for names without the required document: no fill of any kind. The R1 transform of a text trial runs
+# on the covered subset (config/trials_*.yaml `subset: text_covered`). The builder also emits `<feature>_rg`, the
+# rank-gauss score within the covered members of the anchor (NaN elsewhere), as a convenience for pooled analyses.
+version: 1
+
+params:
+  cur_max_age_days: 200
+  prev_min_gap_days: 60
+  prev_max_gap_days: 400
+
+# Output flags (not registry features: binary, never rank-transformed)
+flags:
+  isna_text: 1 when the name has no visible transcript within 200 days (all transcript columns NaN)
+  isna_text_prev: 1 when cur exists but prev does not (all d_* columns NaN)
+  isna_ppt: 1 when the name has no visible presentation within 200 days
+
+features:
+  d_tone:         {family: text_tone,  prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  d_guide:        {family: text_guide, prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  d_unc:          {family: text_unc,   prior: -1,   kind: cross_sectional, category: text, set: text, complete: false}
+  tone_lvl:       {family: text_tone,  prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  guide_lvl:      {family: text_guide, prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  gdn_r:          {family: text_guide, prior: -1,   kind: cross_sectional, category: text, set: text, complete: false}
+  capex_r:        {family: text_capex, prior: null, kind: cross_sectional, category: text, set: text, complete: false}
+  qa_tone:        {family: text_tone,  prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  qa_minus_prep:  {family: text_tone,  prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  ppt_d_guide:    {family: text_guide, prior: 1,    kind: cross_sectional, category: text, set: text, complete: false}
+  ppt_capex_r:    {family: text_capex, prior: null, kind: cross_sectional, category: text, set: text, complete: false}

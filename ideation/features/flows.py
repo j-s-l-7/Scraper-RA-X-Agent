@@ -93,9 +93,7 @@ def flow_columns(view, ctx: AnchorContext) -> pd.DataFrame:
     """Flow columns for ``ctx.members`` rows."""
     own = ownership_by_company(view)
     cid = pd.Series(ctx.ids["company_id"].to_numpy()[ctx.col])
-    res = pd.DataFrame(
-        {n: cid.map(own[n]).to_numpy(dtype=float) if n in own else np.nan for n in OWN_CATS.values()}
-    )
+    res = pd.DataFrame({n: cid.map(own[n]).to_numpy(dtype=float) if n in own else np.nan for n in OWN_CATS.values()})
     grp = pd.Series(ctx.ids["industry_group"].to_numpy()[ctx.col])
     res["fpi_sector_flow_3m"] = grp.map(fpi_flow_by_group(view)).to_numpy(dtype=float)
     return res

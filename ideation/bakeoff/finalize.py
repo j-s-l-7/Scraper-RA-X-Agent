@@ -140,6 +140,8 @@ def finalize(
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"MS1_1Y_bakeoff_{snap_id}.md"
     path.write_text(text, encoding="utf-8")
+    snippet = render_status_snippet(result, specs)
+    (out_dir / f"MS1_status_snippet_{snap_id}.md").write_text(snippet, encoding="utf-8")
     console.print(f"report written: {path} ({time.perf_counter() - t0:.0f} s)")
     console.print(headline(result))
     if persist:
@@ -305,4 +307,24 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
             RP.md(RP.table_rc(t)),
             "",
         ]
+    return "\n".join(out)
+
+
+def render_status_snippet(res: dict[str, Any], specs: list[TrialSpec]) -> str:
+    """The compact tables that go into docs/STATUS.md: R-D for every trial, R-A..R-C for the champion, the baseline and
+    RF_GLOBAL (the full per-trial tables stay in the report file under IDEATION_DATA_DIR/reports/ms1)."""
+    fam, tds = res["fam"], res["tds"]
+    num = {s.trial_id: s.num for s in specs}
+    order = [s.trial_id for s in specs if s.trial_id in tds]
+    out = [
+        "R-D (all fitted trials)",
+        "",
+        RP.md(pd.DataFrame([{"#": num[k], **RP.row_rd(tds[k], fam)} for k in order])),
+        "",
+    ]
+    for k in dict.fromkeys([fam["champion"], RP.BASELINE, "RF_GLOBAL"]):
+        if k in tds:
+            t = tds[k]
+            out += [f"{k}: R-A nested", "", RP.md(RP.table_ra(t, "nested")), ""]
+            out += [f"{k}: R-B", "", RP.md(RP.table_rb(t)), "", f"{k}: R-C", "", RP.md(RP.table_rc(t)), ""]
     return "\n".join(out)

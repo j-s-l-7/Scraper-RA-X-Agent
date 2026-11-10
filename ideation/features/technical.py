@@ -167,7 +167,7 @@ def technical_columns(ctx: AnchorContext, rrg: pd.DataFrame | None) -> pd.DataFr
     res = pd.DataFrame(out)
     # RRG of the stock's industry group
     keys = ctx.ids["industry_group"].iloc[col].reset_index(drop=True)
-    grp = (rrg[rrg["group_type"] == "industry_group"].set_index("group_code") if rrg is not None else None)
+    grp = rrg[rrg["group_type"] == "industry_group"].set_index("group_code") if rrg is not None else None
     qcode = {"Lagging": 0, "Improving": 1, "Weakening": 2, "Leading": 3}
     if grp is not None and len(grp):
         res["rrg_ratio_grp"] = keys.map(grp["rs_ratio"]).to_numpy(dtype=float)

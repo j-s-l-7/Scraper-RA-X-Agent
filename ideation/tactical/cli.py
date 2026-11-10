@@ -372,3 +372,19 @@ def cpcv_report_cmd(trials: Annotated[str, typer.Option(help="ids")] = "") -> No
     md.append(_md(tab))
     (root / "CPCV_REPORT.md").write_text("\n".join(md))
     console.print("\n".join(md))
+
+
+@app.command("diagnostics")
+def diagnostics_cmd(
+    skip_lag: Annotated[bool, typer.Option(help="skip the entry-lag label recomputation")] = False,
+) -> None:
+    """MS2 diagnostics (not trials): beta/vol neutral IC, entry-lag robustness, liquidity/size buckets, feature IC."""
+    from ideation.tactical import diagnostics
+
+    settings = get_settings()
+    setup_logging(settings.logs_dir, settings.log_level, console=False)
+    text, key = diagnostics.run(settings, SNAP, skip_lag=skip_lag)
+    root = settings.data_dir / "tactical_ms2"
+    (root / "DIAGNOSTICS.md").write_text(text)
+    (root / "diagnostics_key.json").write_text(json.dumps(key, default=float, indent=1))
+    console.print(f"wrote {root / 'DIAGNOSTICS.md'}")

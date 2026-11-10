@@ -15,7 +15,12 @@ import pytest
 from ideation.labels import loader
 from ideation.labels.loader import SealedAnchorError, is_sealed, load_labels, unsealed_only
 
-FIT_ENTRY_POINTS: list[str] = []  # "module:function" of every fit / calibrate entry point (E1, MS1, MS2)
+# "module:function" of every fit / calibrate entry point (E1, MS1, MS2)
+FIT_ENTRY_POINTS: list[str] = [
+    "ideation.bakeoff.data:load_panel",
+    "ideation.bakeoff.run:run_wfo",
+    "ideation.bakeoff.run:run_cpcv",
+]
 
 LABELS = pd.DataFrame(
     {
@@ -84,5 +89,39 @@ def test_audit_records_every_call() -> None:
 
 
 @pytest.mark.parametrize("entry", FIT_ENTRY_POINTS or [pytest.param("none", marks=pytest.mark.skip("P4+ adds"))])
-def test_entry_points_never_see_sealed_anchors(entry: str) -> None:  # pragma: no cover - filled by E1/MS1
-    raise AssertionError(f"wire {entry} into the recorder before enabling")
+def test_entry_points_never_see_sealed_anchors(entry: str, tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-26: run the MS1 driver on a synthetic source that CONTAINS 2025 anchors (labels, universe, features) and record
+    every anchor that reaches a fit, a score call or the label loader; none may be sealed, and the sealed rows never
+    enter the panel."""
+    import importlib
+
+    from ideation.bakeoff import data as bdata
+    from ideation.bakeoff import run as brun
+    from tests.leakage.test_ms1_bakeoff import REG, spec, synth_dir
+
+    seen: list[pd.Timestamp] = []
+    real_fit = brun._fit_predict
+
+    def recording(ctx, train, test, **kw):
+        seen.extend([*train, *test])
+        return real_fit(ctx, train, test, **kw)
+
+    monkeypatch.setattr(brun, "_fit_predict", recording)
+    out = synth_dir(tmp_path)
+    assert (pd.read_parquet(out / "labels.parquet")["anchor"].astype(str) >= "2025-03-01").any()  # sealed rows exist
+    loader.AUDIT.clear()
+    mod, fn = entry.split(":")
+    assert callable(getattr(importlib.import_module(mod), fn))
+    panel = bdata.load_panel(out, "snap", "june", REG, label_source=out / "labels.parquet")
+    assert not any(is_sealed(a, "1Y") for a in panel.anchors)
+    assert not any(is_sealed(a, "1Y") for a in pd.to_datetime(panel.frame["anchor"]).dt.date)
+    ctx = brun.make_context(spec("RIDGE_GLOBAL"), panel, REG, tmp_path / "ck", {})
+    if fn == "run_wfo":
+        brun.run_wfo(ctx, importance=False)
+    elif fn == "run_cpcv":
+        brun.run_cpcv(ctx)
+    assert all(not is_sealed(a.date(), "1Y") for a in seen)
+    assert all(not loader.sealed_anchors(rec.anchors, rec.horizon) for rec in loader.AUDIT)
+    assert loader.AUDIT and all(rec.purpose in ("fit", "calibrate", "select", "evaluate") for rec in loader.AUDIT)
+    if fn != "load_panel":
+        assert seen, "the entry point never fitted anything"

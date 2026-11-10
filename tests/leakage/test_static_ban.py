@@ -22,7 +22,7 @@ from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
 BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank")
-BAN_ALLOWLIST: frozenset[str] = frozenset()  # live-overlay modules, e.g. "ideation/ideas/overlay.py"
+BAN_ALLOWLIST: frozenset[str] = frozenset({"ideation/features/events_vendor.py"})  # 05 O5: the single entry
 IMPORT_RESTRICTED = ("features", "models", "universe")
 FORBIDDEN_IMPORTS = ("ideation.lake", "ideation.labels", "psycopg", "psycopg2")
 IMPORT_EXCEPTIONS = {("ideation/models/train.py", "ideation.labels")}
@@ -106,6 +106,16 @@ def test_static_ban() -> None:
     assert {k: v for k, v in hits.items() if v} == {}
 
 
+def test_ban_allowlist_is_the_single_vendor_module() -> None:
+    """05 O5 / §10.3 PT2: exactly one allow-listed module; it really names the vendor columns (not vacuous); no other
+    scanned module may (``test_static_ban``), and the allow-listed module still obeys the import and clock rules."""
+    assert {"ideation/features/events_vendor.py"} == BAN_ALLOWLIST
+    vendor = REPO_ROOT / "ideation/features/events_vendor.py"
+    assert {"eps_estimate"} <= set(banned_strings(vendor))
+    assert forbidden_imports(vendor) == [] and clock_reads(vendor) == []  # noqa: PT018
+    assert vendor in py_files(IMPORT_RESTRICTED) and vendor in py_files(CLOCK_SCANNED)  # noqa: PT018
+
+
 def test_import_contract() -> None:
     hits = {p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p) for p in py_files(IMPORT_RESTRICTED)}
     assert {k: v for k, v in hits.items() if v} == {}
@@ -153,6 +163,13 @@ def test_scanner_catches_planted_banned_strings(planted: Path) -> None:
     )
     assert set(banned_strings(mod)) == {"market_snapshot", "TTM", "is_active", "equity.universe"}
     assert py_files(("features",), planted) == sorted(planted.joinpath("features").glob("*.py"))
+
+
+def test_planted_vendor_literal_outside_the_allowlist_fails(planted: Path) -> None:
+    mod = planted / "features" / "sneaky.py"
+    mod.write_text('COLS = ["eps_estimate", "surprise_pct"]\n')
+    assert set(banned_strings(mod)) == {"eps_estimate", "surprise_pct"}
+    assert "ideation/features/sneaky.py" not in BAN_ALLOWLIST
 
 
 def test_scanner_catches_planted_imports(planted: Path) -> None:

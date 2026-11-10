@@ -790,7 +790,7 @@ unused); `init-db` never run from the worktree. The `outcomes/` module is NOT bu
 | `uv run ideation text vendor-gate` | PASS (below) | 65 s wall |
 | `uv run ruff check .` | clean | |
 | `uv run pytest -m "not lake"` | 520 passed, 1 skipped, 1 xfailed, 1 xpassed | 125 s |
-| `uv run pytest -m lake` | LAKE_RESULT | LAKE_TIME |
+| `uv run pytest -m lake` | 91 passed (5 new PT2) | 329 s |
 | `uv run python scripts/secret_scan.py --all` | clean | |
 Total PT2 compute well inside the 10 min budget. New tests: unit `test_text_features.py` (8, incl. T-24 `test_text_availability` at
 feature level and a synthetic poison test), lake `test_pt2_text.py` (T-25 `test_text_future_poison` at 2019-06-28, 2022-01-31,

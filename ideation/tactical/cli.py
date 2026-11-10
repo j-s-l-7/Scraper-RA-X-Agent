@@ -262,3 +262,98 @@ def _persist(settings, specs, scores, pa, summ, raw, dec, stab) -> None:  # type
             ps.update_trial(conn, tid, "ok", pa[s.trial_id]["3M"])
             n = ps.write_oos(conn, tid, scores[s.trial_id], raw)
             console.print(f"persisted {s.trial_id}: trial_id {tid}, {n} oos rows")
+
+
+@app.command("cpcv")
+def cpcv_cmd(
+    trials: Annotated[
+        str, typer.Option(help="comma-separated ids; default: decision.json top3_fitted + T_EW_SIGNPRIOR")
+    ] = "",
+) -> None:
+    """CPCV (12 groups, k=2: 66 splits, 11 paths, embargo 3) for the top-3 fitted trials and the no-fit baseline.
+    Resumable per (trial, split)."""
+    from ideation.tactical.engine import run_cpcv
+    from ideation.trials.registry import load_family
+
+    settings, out, panel = _ctx()
+    root = settings.data_dir / "tactical_ms2"
+    ids = (
+        trials.split(",")
+        if trials
+        else [*json.loads((root / "decision.json").read_text())["top3_fitted"], "T_EW_SIGNPRIOR"]
+    )
+    specs = {s.trial_id: s for s in load_family("tactical-3M")}
+    frames = _frames(settings, out, panel, any("TEXT" in i for i in ids), any("VSURP" in i for i in ids))
+    designs: dict = {}
+    for tid in ids:
+        spec = specs[tid]
+        key = (
+            spec.config.get("features", "T0"),
+            spec.config.get("subset"),
+            spec.config.get("adv_floor_cr", 0.2),
+            spec.config.get("gate", ""),
+        )
+        if key not in designs:
+            designs[key] = design_for(spec, frames, panel)
+        t0 = time.perf_counter()
+        run_cpcv(spec, designs[key], panel.anchors, panel.label_end, root, progress=lambda m: console.print(m))
+        console.print(f"[green]{tid} CPCV done[/green] {time.perf_counter() - t0:.0f}s")
+
+
+@app.command("cpcv-report")
+def cpcv_report_cmd(trials: Annotated[str, typer.Option(help="ids")] = "") -> None:
+    """Path-level IC distribution of the CPCV runs next to the no-fit baselines (MOM_12_1, T_EW_SIGNPRIOR)."""
+    from ideation.cv.cpcv import anchor_groups, cpcv_paths
+    from ideation.tactical import evalx
+    from ideation.tactical.engine import cpcv_split_list, trial_dir
+    from ideation.trials.registry import load_family
+
+    settings, _out, panel = _ctx()
+    root = settings.data_dir / "tactical_ms2"
+    ids = (
+        trials.split(",")
+        if trials
+        else [*json.loads((root / "decision.json").read_text())["top3_fitted"], "T_EW_SIGNPRIOR"]
+    )
+    specs = {s.trial_id: s for s in load_family("tactical-3M")}
+    splits = cpcv_split_list(panel.anchors, panel.label_end)
+    paths = cpcv_paths(splits, 12)
+    raw = panel.frame
+    rows, md = [], ["# CPCV (66 splits, 11 paths)"]
+    for tid in [*ids, "MOM_12_1"]:
+        if tid == "MOM_12_1":
+            sc = raw[["anchor", "security_id"]].assign(score=raw["mom_12_1"])
+            pa = evalx.per_anchor(sc, raw)
+            s = evalx.summarize(pa)
+            rows.append({"trial": tid, "paths": 1, "mean_ic": s["ic_mean"], "min_path": s["ic_mean"], "max_path": s["ic_mean"],
+                         "nw_t": s["nw_t"], "spread_cost_adj": s["spread_cost_adj"], "pct_pos": s["pct_pos"]})  # fmt: skip
+            continue
+        d = trial_dir(root, "cpcv", specs[tid])
+        per_split = {
+            s.index: pd.read_parquet(d / f"split_{s.index:02d}.parquet")
+            for s in splits
+            if (d / f"split_{s.index:02d}.parquet").exists()
+        }
+        if len(per_split) < len(splits):
+            md.append(f"{tid}: only {len(per_split)}/{len(splits)} splits done")
+            continue
+        groups = {g: set(a) for g, a in enumerate(anchor_groups(panel.anchors, 12))}
+        pstats = []
+        for path in paths:
+            parts = []
+            for g, si in path:
+                df = per_split[si]
+                df = df[pd.to_datetime(df["anchor"]).isin(groups[g])]
+                parts.append(df)
+            sc = pd.concat(parts)
+            sc["anchor"] = pd.to_datetime(sc["anchor"])
+            pa = evalx.per_anchor(sc, raw)
+            pstats.append(evalx.summarize(pa))
+        ics = [p["ic_mean"] for p in pstats]
+        rows.append({"trial": tid, "paths": len(paths), "mean_ic": float(np.mean(ics)), "min_path": float(np.min(ics)), "max_path": float(np.max(ics)),
+                     "nw_t": float(np.mean([p["nw_t"] for p in pstats])), "spread_cost_adj": float(np.mean([p["spread_cost_adj"] for p in pstats])),
+                     "pct_pos": float(np.mean([p["pct_pos"] for p in pstats]))})  # fmt: skip
+    tab = pd.DataFrame(rows).set_index("trial")
+    md.append(_md(tab))
+    (root / "CPCV_REPORT.md").write_text("\n".join(md))
+    console.print("\n".join(md))

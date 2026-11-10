@@ -807,6 +807,11 @@ Date 2026-11-11. Branch `phase-3-technical-regime` (from `main` 7f21625's parent
 | `uv run ideation features-tech history --from 2020-01 --to 2020-07` | stored regime history | <2 s |
 | `uv run ideation features-tech regime --as-of latest` | regime vector, labels, RRG (22 groups, 12 sectors, 14 indices) at 2026-11-05; upserted `regime_snapshot` + 48 `sector_rotation` rows | ~8 s |
 
+| `uv run ruff check .` | All checks passed | <1 s |
+| `uv run pytest -m "not lake"` | **541 passed**, 1 skipped, 1 xfailed, 1 xpassed (E1 documented) | 105 s |
+| `uv run pytest -m lake` | **97 passed** (86 earlier + 11 P3) | 322 s |
+| `uv run python scripts/secret_scan.py --all` | clean | <1 s |
+
 Outputs (not in git): `outputs/<snap>/features_tech.parquet`, `regime_history.parquet`.
 
 ### Measured

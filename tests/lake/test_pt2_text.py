@@ -58,8 +58,8 @@ def test_vendor_validity_gate_passes(settings) -> None:
     par = yaml.safe_load((settings.config_dir / "features_vendor.yaml").read_text())["params"]
     view = store.as_of(store.calendar.good[-1].astype(object), record=False)
     res = ev.validity_gate(view, par)
-    assert res["n_events"] > 10_000 and res["n_quarters"] >= 40  # noqa: PT018
-    assert res["rho"] > 0 and res["t_clustered"] > 3 and res["passed"]  # noqa: PT018
+    assert res["n_events"] > 10_000 and res["n_quarters"] >= 40
+    assert res["rho"] > 0 and res["t_clustered"] > 3 and res["passed"]
     assert str(res["gate_to"]) == "2025-06-30"  # the sealed tactical window is never read
 
 

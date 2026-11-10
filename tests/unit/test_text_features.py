@@ -70,12 +70,12 @@ def test_text_availability() -> None:  # T-24 (feature level); the extract-level
         m = _members(1, 2, 3)
         # the call is invisible on its doc_date month and on the last session before available_from
         f = build_text(st.as_of(date(2024, 10, 31)), m, REG, PAR).set_index("company_id")
-        assert f.loc[[1, 3], "isna_text"].tolist() == [1, 1] and f.loc[[1, 3], "tone_lvl"].isna().all()  # noqa: PT018
+        assert f.loc[[1, 3], "isna_text"].tolist() == [1, 1] and f.loc[[1, 3], "tone_lvl"].isna().all()
         # company 1 turns visible on 2024-11-01, company 3 only on 2024-11-06
         f = build_text(st.as_of(date(2024, 11, 1)), m, REG, PAR).set_index("company_id")
-        assert f.loc[1, "isna_text"] == 0 and f.loc[1, "tone_lvl"] == 0.6 and f.loc[3, "isna_text"] == 1  # noqa: PT018
+        assert f.loc[1, "isna_text"] == 0 and f.loc[1, "tone_lvl"] == 0.6 and f.loc[3, "isna_text"] == 1
         f = build_text(st.as_of(date(2024, 11, 6)), m, REG, PAR).set_index("company_id")
-        assert f.loc[3, "isna_text"] == 0 and f.loc[3, "tone_lvl"] == 0.4  # noqa: PT018
+        assert f.loc[3, "isna_text"] == 0 and f.loc[3, "tone_lvl"] == 0.4
         # tijori: statutory floor 2024-08-15; not visible on 2024-08-14
         assert build_text(st.as_of(date(2024, 8, 14)), m, REG, PAR).set_index("company_id").loc[2, "isna_text"] == 1
         assert build_text(st.as_of(date(2024, 8, 15)), m, REG, PAR).set_index("company_id").loc[2, "isna_text"] == 0
@@ -97,14 +97,14 @@ def test_cur_prev_windows_no_fill_and_levels(tmp_path: Path) -> None:
     f = build_text(st.as_of(date(2024, 12, 2)), _members(1, 2, 3, 4), REG, PAR).set_index("company_id")
     assert f.loc[1, "d_tone"] == pytest.approx(0.70 - 0.55)  # latest doc in [cur-400, cur-60] is 2024-07-01
     assert f.loc[1, "d_guide"] == pytest.approx(0.30)
-    assert f.loc[1, "ppt_d_guide"] == pytest.approx(0.3) and f.loc[1, "ppt_capex_r"] == 1.5  # noqa: PT018
-    assert f.loc[2, "isna_text"] == 0 and f.loc[2, "isna_text_prev"] == 1 and np.isnan(f.loc[2, "d_tone"])  # noqa: PT018
+    assert f.loc[1, "ppt_d_guide"] == pytest.approx(0.3) and f.loc[1, "ppt_capex_r"] == 1.5
+    assert f.loc[2, "isna_text"] == 0 and f.loc[2, "isna_text_prev"] == 1 and np.isnan(f.loc[2, "d_tone"])
     assert f.loc[2, "tone_lvl"] == 0.6
     for c in (3, 4):  # uncovered: every column NaN, no fill
         assert f.loc[c, "isna_text"] == 1
         assert f.loc[c, [*REG.names(source="features_text.yaml")]].isna().all()
     # rank-gauss only within covered names; uncovered stay NaN
-    assert f["tone_lvl_rg"].notna().sum() == 2 and f.loc[[3, 4], "tone_lvl_rg"].isna().all()  # noqa: PT018
+    assert f["tone_lvl_rg"].notna().sum() == 2 and f.loc[[3, 4], "tone_lvl_rg"].isna().all()
     assert f.loc[1, "tone_lvl_rg"] > f.loc[2, "tone_lvl_rg"]
 
 
@@ -115,7 +115,7 @@ def test_poison_after_text_docs(tmp_path: Path) -> None:
     st = _store(tmp_path, docs)
     a = date(2024, 11, 29)
     base = build_text(st.as_of(a), _members(1, 2, 3), REG, PAR)
-    assert base["isna_text"].eq(0).all() and base["d_tone"].notna().all()  # noqa: PT018
+    assert base["isna_text"].eq(0).all() and base["d_tone"].notna().all()
     for mode in ("nan", "shuffle", "inflate"):
         pois = st.poison_after(a, mode)  # type: ignore[arg-type]
         got = build_text(pois.as_of(a), _members(1, 2, 3), REG, PAR)
@@ -149,8 +149,8 @@ def _vendor_store(tmp_path: Path) -> PitStore:
 
 def test_vendor_surprise_formula() -> None:
     s = ev.surprise_pct(pd.Series([1.0, -2.0, 0.0, 2.0]), pd.Series([1.2, -1.0, 0.5, 1.0]))
-    assert s.iloc[0] == pytest.approx(20.0) and s.iloc[1] == pytest.approx(50.0)  # |est| in the denominator  # noqa: PT018
-    assert np.isnan(s.iloc[2]) and s.iloc[3] == pytest.approx(-50.0)  # noqa: PT018
+    assert s.iloc[0] == pytest.approx(20.0) and s.iloc[1] == pytest.approx(50.0)  # |est| in the denominator
+    assert np.isnan(s.iloc[2]) and s.iloc[3] == pytest.approx(-50.0)
 
 
 def test_vendor_features_and_flag(tmp_path: Path) -> None:
@@ -161,10 +161,10 @@ def test_vendor_features_and_flag(tmp_path: Path) -> None:
     with pytest.raises(ev.VendorNotAllowedError):
         ev.build_vendor(v, m, REG, par, allow_vendor_estimates=False)
     f = ev.build_vendor(v, m, REG, par, allow_vendor_estimates=True).set_index("company_id")
-    assert np.isnan(f.loc[1, "f_vsurp_last"]) and f.loc[1, "isna_vsurp"] == 0  # latest event: estimate 0  # noqa: PT018
+    assert np.isnan(f.loc[1, "f_vsurp_last"]) and f.loc[1, "isna_vsurp"] == 0  # latest event: estimate 0
     assert f.loc[1, "f_vbeat_4q"] == pytest.approx(0.5)  # beats: +, -, (tie = no beat), + -> 2 of 4
     assert f.loc[2, "f_vsurp_last"] == pytest.approx(50.0)
-    assert f.loc[3, "isna_vsurp"] == 1 and np.isnan(f.loc[3, "f_vbeat_4q"])  # no reported EPS: not an event  # noqa: PT018
+    assert f.loc[3, "isna_vsurp"] == 1 and np.isnan(f.loc[3, "f_vbeat_4q"])  # no reported EPS: not an event
     assert f.loc[4, "isna_vsurp"] == 1  # event after the anchor is invisible
     assert f.loc[5, "isna_vsurp"] == 1
     # window: at 2024-12-02 the 2024-08-01 event is inside 120 d only for company 1's older rows
@@ -185,6 +185,6 @@ def test_clustered_spearman_detects_and_rejects_signal() -> None:
     q = rng.integers(0, 40, n)
     x = rng.normal(size=n)
     r = ev.clustered_spearman(x, 0.5 * x + rng.normal(size=n), q)
-    assert r["rho"] > 0.3 and r["t"] > 10 and r["clusters"] == 40  # noqa: PT018
+    assert r["rho"] > 0.3 and r["t"] > 10 and r["clusters"] == 40
     r0 = ev.clustered_spearman(x, rng.normal(size=n), q)
-    assert abs(r0["rho"]) < 0.05 and abs(r0["t"]) < 3  # noqa: PT018
+    assert abs(r0["rho"]) < 0.05 and abs(r0["t"]) < 3

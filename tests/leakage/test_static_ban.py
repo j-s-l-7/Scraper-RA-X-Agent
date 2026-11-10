@@ -112,8 +112,8 @@ def test_ban_allowlist_is_the_single_vendor_module() -> None:
     assert {"ideation/features/events_vendor.py"} == BAN_ALLOWLIST
     vendor = REPO_ROOT / "ideation/features/events_vendor.py"
     assert {"eps_estimate"} <= set(banned_strings(vendor))
-    assert forbidden_imports(vendor) == [] and clock_reads(vendor) == []  # noqa: PT018
-    assert vendor in py_files(IMPORT_RESTRICTED) and vendor in py_files(CLOCK_SCANNED)  # noqa: PT018
+    assert forbidden_imports(vendor) == [] and clock_reads(vendor) == []
+    assert vendor in py_files(IMPORT_RESTRICTED) and vendor in py_files(CLOCK_SCANNED)
 
 
 def test_import_contract() -> None:

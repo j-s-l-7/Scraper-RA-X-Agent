@@ -122,7 +122,9 @@ def register(app: typer.Typer) -> None:
 
     @app.command("vendor-gate")
     def vendor_gate_cmd(
-        ear: Annotated[str, typer.Option(help="local (PT2's own ear_3d) | p3 (features/events.py via features_tech)")] = "local",
+        ear: Annotated[
+            str, typer.Option(help="local (PT2's own ear_3d) | p3 (features/events.py via features_tech)")
+        ] = "local",
     ) -> None:
         """05 §6.3 validity gate for the vendor-surprise challenger: Spearman(surprise, ear_3d), quarter-clustered t."""
         from ideation.features.events_vendor import validity_gate, validity_gate_p3
@@ -139,7 +141,9 @@ def register(app: typer.Typer) -> None:
             res["snap_id"] = store.snap_id
             (store.outputs_dir / "vendor_gate_p3.json").write_text(json.dumps(res, indent=1, default=str))  # type: ignore[operator]
             console.print({k: v for k, v in res.items()})
-            console.print("vendor validity gate with P3 ear_3d: [bold]" + ("PASS" if res["passed"] else "FAIL") + "[/bold]")
+            console.print(
+                "vendor validity gate with P3 ear_3d: [bold]" + ("PASS" if res["passed"] else "FAIL") + "[/bold]"
+            )
             return
         res = validity_gate(view, params)
         res["snap_id"] = store.snap_id

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation tactical …``: the MS2 tactical bake-off (kept out of ``ideation/cli.py`` except one ``add_typer`` line).
 
 * ``tactical wfo``    : monthly walk-forward of the fitted trials (resumable, checkpointed per (trial, fold)).
@@ -13,6 +14,7 @@ import sys
 import time
 from typing import Annotated
 
+import numpy as np
 import pandas as pd
 import typer
 import yaml
@@ -80,7 +82,9 @@ def control_spec(spec):  # type: ignore[no-untyped-def]
 @app.command("wfo")
 def wfo_cmd(
     only: Annotated[str, typer.Option(help="comma-separated trial ids (default: all fitted trials)")] = "",
-    no_importance: Annotated[bool, typer.Option(help="skip clustered permutation importance (90/10 stability)")] = False,
+    no_importance: Annotated[
+        bool, typer.Option(help="skip clustered permutation importance (90/10 stability)")
+    ] = False,
 ) -> None:
     """Run the walk-forward for every fitted trial (resumable). 3M primary; 1M is scored later from the same scores."""
     from ideation.tactical.engine import run_wfo
@@ -105,7 +109,7 @@ def wfo_cmd(
             console.print(f"[yellow]{spec.trial_id}: vendor gate not passed -> failed, not run[/yellow]")
             continue
         runs = [(spec, "trial")]
-        if cfg.get("paired_with") and cfg.get("subset") or cfg.get("gate") == "vsurp_validity":
+        if (cfg.get("paired_with") and cfg.get("subset")) or cfg.get("gate") == "vsurp_validity":
             runs.append((control_spec(spec), "control"))
         for sp, kind in runs:
             key = (sp.config.get("features", "T0"), sp.config.get("subset"), sp.config.get("adv_floor_cr", 0.2),
@@ -142,4 +146,119 @@ def params_cmd() -> None:
                                   ("EMBARGO_3M", "N_TRAIN", "BLOCK", "IMP_REPEATS", "IMP_MAX_ROWS", "N_GROUPS", "K_TEST")}))  # fmt: skip
 
 
-_ = pd
+def _md(df: pd.DataFrame, floatfmt: str = ".4f") -> str:
+    cols = list(df.columns)
+    lines = ["| " + " | ".join([df.index.name or ""] + [str(c) for c in cols]) + " |",
+             "|" + "---|" * (len(cols) + 1)]  # fmt: skip
+    for i, r in df.iterrows():
+        cells = [f"{v:{floatfmt}}" if isinstance(v, float) else str(v) for v in r.tolist()]
+        lines.append("| " + " | ".join([str(i), *cells]) + " |")
+    return "\n".join(lines)
+
+
+@app.command("report")
+def report_cmd(persist: Annotated[bool, typer.Option(help="write model/wf_result/oos_prediction/experiment_trial")] = False,
+               audit: Annotated[bool, typer.Option(help="run the adversarial-validation AUC (T0, T1)")] = True) -> None:  # fmt: skip
+    """Metrics, paired arms, 90/10 selection, DSR, PBO, gates and the champion-or-baseline decision."""
+    from ideation.tactical import evalx
+    from ideation.tactical import report as rp
+    from ideation.tactical.data import build_design
+    from ideation.tactical.engine import wfo_folds
+    from ideation.trials.registry import load_family
+
+    settings, _out, panel = _ctx()
+    root = settings.data_dir / "tactical_ms2"
+    specs = load_family("tactical-3M")
+    raw = panel.frame
+    scores, infos = rp.all_scores(root, specs, raw)
+    pa, summ = rp.trial_table(scores, raw)
+    stab = {t: evalx.stability_of(i) for t, i in infos.items()}
+    aucs: dict = {}
+    if audit:
+        for fset in ("T0", "T1"):
+            d = build_design(panel.frame, panel.reg, fset)
+            sp = next(s for s in specs if s.config.get("features", "T0") == fset and "learner" in s.config)
+            aucs[fset] = rp.adversarial_auc(d, wfo_folds(sp, panel.anchors, panel.label_end))
+    auc_mean = float(np.mean([a["auc"] for a in aucs["T0"]])) if aucs else None
+    dec = rp.decide(summ, pa, scores, stab, len(specs), auc_mean)
+    md = ["# MS2 tactical report (generated, not committed)", ""]
+    fmt = summ.copy()
+    fmt["ci95"] = fmt["ci95"].map(lambda c: f"[{c[0]:.4f}, {c[1]:.4f}]")
+    fmt["ci90"] = fmt["ci90"].map(lambda c: f"[{c[0]:.4f}, {c[1]:.4f}]")
+    for h in ("3M", "1M"):
+        t = fmt[fmt["horizon"] == h].set_index("trial").drop(columns=["horizon"])
+        md += [f"## Trial table, horizon {h} (IC vs total return, per-anchor rank IC)", _md(t), ""]
+    sel = dec["selection"].to_frame("score_9010")
+    sel["mean_ic"] = [summ[(summ.trial == t) & (summ.horizon == "3M")]["ic_mean"].iloc[0] for t in sel.index]
+    sel["stability"] = [stab.get(t, float("nan")) for t in sel.index]
+    sel["DSR_ic"] = [dec["dsr_ic"][t]["dsr"] for t in sel.index]
+    sel["DSR_spread"] = [dec["dsr_spread"][t]["dsr"] for t in sel.index]
+    md += ["## 90/10 selection over the long-window pool (3M)", _md(sel), "", f"PBO (CSCV S=12): {dec['pbo']['pbo']:.3f} "
+           f"on T={dec['pbo']['T']} anchors x {dec['pbo']['n_trials']} trials", ""]  # fmt: skip
+    md += ["## Champion gates", f"champion by 90/10: **{dec['champion']}**"]
+    md += [f"- {k}: {'PASS' if v[0] else 'FAIL'} ({v[1]})" for k, v in dec["gates"].items()]
+    for b, v in dec["non_inferiority"].items():
+        md.append(f"- vs {b}: delta IC {v['delta']:.4f} CI90 [{v['ci90'][0]:.4f}, {v['ci90'][1]:.4f}] P(d>0)={v['p_gt0']:.2f} -> "
+                  f"{'ok' if dec['ni_ok'][b] else 'FAIL'}")  # fmt: skip
+    md += [f"**Ships: {dec['ships']}** (champion passes all gates: {dec['champion_passes']}; best baseline "
+           f"{dec['best_baseline']})", ""]  # fmt: skip
+    pairs = [("RF_T0_REGIME", "RF_T0"), ("LGBM_T0_REGIME", "LGBM_T0"), ("RIDGE_T0_REGIME", "RIDGE_T0"),
+             ("RF_T0_9010SEC", "RF_T0"), ("RF_T0_ADV05", "RF_T0"), ("RF_T1", "RF_T0"), ("LGBM_T1", "LGBM_T0"),
+             ("RIDGE_T1", "RIDGE_T0"), ("RF_T1_TEXT", "RF_T1_TEXT_CTRL"), ("RIDGE_T1_TEXT", "RIDGE_T1_TEXT_CTRL"),
+             ("RF_T1_VSURP", "RF_T1_VSURP_CTRL"), ("RIDGE_T1_VSURP", "RIDGE_T1_VSURP_CTRL")]  # fmt: skip
+    rows = []
+    for a, b in pairs:
+        if a in pa and b in pa:
+            r = evalx.paired_ic(pa[a]["3M"]["ic"], pa[b]["3M"]["ic"])
+            rows.append({"arm": f"{a} - {b}", **{k: (f"[{v[0]:.4f}, {v[1]:.4f}]" if isinstance(v, tuple) else v)
+                                                 for k, v in r.items()}})  # fmt: skip
+    md += ["## Paired arms (per-anchor delta IC, common anchors, stationary bootstrap)",
+           _md(pd.DataFrame(rows).set_index("arm")) if rows else "(none)", ""]  # fmt: skip
+    cs = rp.consensus_sets_eval({m: scores[m] for m in next(s.config["members"] for s in specs if "members" in s.config)
+                                 if m in scores}, raw) if "CONS_MAJ_T" in scores else None  # fmt: skip
+    if cs is not None:
+        md += ["## Consensus sets (3M, equal-weight excess vs universe median, mean over anchors)",
+               _md(cs.mean(numeric_only=True).to_frame("mean")), ""]  # fmt: skip
+    champ = dec["champion"]
+    md += [f"## R-A pooled (descriptive) for {champ}", _md(rp.ra_table(scores[champ], raw)), ""]
+    if aucs:
+        for k, v in aucs.items():
+            md += [f"## Adversarial AUC {k} (R1 inputs, broadcast excluded): mean {np.mean([a['auc'] for a in v]):.3f}",
+                   "\n".join(f"- {a['fold']}: {a['auc']:.3f} top {a['top']}" for a in v), ""]  # fmt: skip
+    fits = {t: {"fit_s": sum(i.get("fit_s", 0) or 0 for i in v), "imp_s": sum(i.get("imp_s", 0) or 0 for i in v),
+                "n_train_first": v[0]["n_train"] if v else None, "warnings": sorted({w for i in v for w in i.get("warnings", [])})}
+            for t, v in infos.items()}  # fmt: skip
+    md += ["## Fit time and warnings", _md(pd.DataFrame(fits).T), ""]
+    (root / "MS2_REPORT.md").write_text("\n".join(md))
+    (root / "decision.json").write_text(json.dumps({
+        "champion": champ, "ships": dec["ships"], "champion_passes": dec["champion_passes"],
+        "top3_fitted": [t for t in dec["selection"].index if t in rp.FITTED_SINGLE][:3],
+        "pbo": dec["pbo"], "gates": {k: [v[0], v[1]] for k, v in dec["gates"].items()}}, default=str))  # fmt: skip
+    console.print("\n".join(md))
+    if persist:
+        _persist(settings, specs, scores, pa, summ, raw, dec, stab)
+
+
+def _persist(settings, specs, scores, pa, summ, raw, dec, stab) -> None:  # type: ignore[no-untyped-def]
+    from ideation.db.writer import Writer
+    from ideation.tactical import persist as ps
+
+    nuni = raw.groupby("anchor").size()
+    with Writer.from_settings(settings).connect() as conn:
+        for s in specs:
+            if s.trial_id not in pa:
+                ps.update_trial(conn, int(conn.execute("select trial_id from ideation.experiment_trial where family=%s and "
+                                                       "config_hash=%s", (s.family, s.config_hash)).fetchone()[0]), "failed", None)  # fmt: skip
+                continue
+            tid = int(conn.execute("select trial_id from ideation.experiment_trial where family=%s and config_hash=%s",
+                                   (s.family, s.config_hash)).fetchone()[0])  # fmt: skip
+            sel = {
+                "score_9010": float(dec["selection"].get(s.trial_id, float("nan"))),
+                "stability": stab.get(s.trial_id),
+            }
+            for h in ("3M", "1M"):
+                mid = ps.model_id(conn, s, h, sel)
+                ps.write_wf_result(conn, mid, pa[s.trial_id][h], nuni)
+            ps.update_trial(conn, tid, "ok", pa[s.trial_id]["3M"])
+            n = ps.write_oos(conn, tid, scores[s.trial_id], raw)
+            console.print(f"persisted {s.trial_id}: trial_id {tid}, {n} oos rows")

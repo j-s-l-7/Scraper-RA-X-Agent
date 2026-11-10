@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Evaluation of tactical OOS scores: per-anchor metrics, IC inference, DSR, PBO, 90/10, gates (02 §5.5, 03 §C9).
 
 No database access. All bootstraps use ``N_BOOT`` = 10,000 resamples.

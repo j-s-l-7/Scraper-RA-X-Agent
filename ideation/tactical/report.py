@@ -1,3 +1,4 @@
+# ruff: noqa: E501, N806
 """MS2 report: metrics for every trial and horizon, paired arms, 90/10 selection, DSR, PBO, gates, champion decision.
 Pure pandas on the checkpointed scores (no database access); persistence lives in ``persist.py``."""
 
@@ -17,7 +18,6 @@ from ideation.eval.metrics import bucket_table
 from ideation.rank.percentile import percentile
 from ideation.tactical import evalx
 from ideation.tactical.data import ANCHOR_MAX, Design
-from ideation.tactical.engine import baseline_scores, wfo_folds
 from ideation.trials.registry import TrialSpec
 
 LONG_START = pd.Timestamp("2014-01-31")
@@ -61,7 +61,9 @@ def all_scores(root: Path, specs: list[TrialSpec], raw: pd.DataFrame):  # type: 
     return scores, infos
 
 
-def trial_table(scores: dict[str, pd.DataFrame], raw: pd.DataFrame) -> tuple[dict[str, dict[str, pd.DataFrame]], pd.DataFrame]:
+def trial_table(
+    scores: dict[str, pd.DataFrame], raw: pd.DataFrame
+) -> tuple[dict[str, dict[str, pd.DataFrame]], pd.DataFrame]:
     """per-anchor frames {trial: {'3M': df, '1M': df}} and the summary table (one row per trial x horizon)."""
     pa: dict[str, dict[str, pd.DataFrame]] = {}
     rows = []
@@ -89,10 +91,14 @@ def adversarial_auc(design: Design, folds: list, seed: int = 0, cap: int = 6000)
         X = design.X.iloc[np.concatenate([tr, te])][cols].to_numpy()
         y = np.r_[np.zeros(len(tr)), np.ones(len(te))]
         clf = RandomForestClassifier(200, max_depth=6, n_jobs=4, random_state=seed)
-        p = cross_val_predict(clf, X, y, cv=StratifiedKFold(5, shuffle=True, random_state=seed), method="predict_proba")[:, 1]
+        p = cross_val_predict(
+            clf, X, y, cv=StratifiedKFold(5, shuffle=True, random_state=seed), method="predict_proba"
+        )[:, 1]
         clf.fit(X, y)
         top = sorted(zip(cols, clf.feature_importances_, strict=True), key=lambda t: -t[1])[:3]
-        out.append({"fold": f.name, "auc": float(roc_auc_score(y, p)), "top": [(c, round(float(v), 3)) for c, v in top]})
+        out.append(
+            {"fold": f.name, "auc": float(roc_auc_score(y, p)), "top": [(c, round(float(v), 3)) for c, v in top]}
+        )
     return out
 
 
@@ -114,7 +120,9 @@ def decide(summ: pd.DataFrame, pa: dict, scores: dict, stab: dict[str, float], n
            auc_mean: float | None) -> dict[str, Any]:  # fmt: skip
     """Selection (90/10), DSR, PBO, gates, non-inferiority and the champion-or-baseline decision."""
     s3 = summ[summ["horizon"] == "3M"].set_index("trial")
-    pool = [t for t in s3.index if t not in POOL_EXCLUDE and not t.endswith("_CTRL") and t not in {"MOM_12_1", "LOWVOL"}]
+    pool = [
+        t for t in s3.index if t not in POOL_EXCLUDE and not t.endswith("_CTRL") and t not in {"MOM_12_1", "LOWVOL"}
+    ]
     pool = [t for t in pool if s3.loc[t, "first"] <= LONG_START.date()]
     ic = {t: pa[t]["3M"]["ic"].dropna() for t in pool}
     sel = evalx.select_9010(pd.Series({t: s3.loc[t, "ic_mean"] for t in pool}),

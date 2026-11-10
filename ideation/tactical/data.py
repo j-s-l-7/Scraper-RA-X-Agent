@@ -1,3 +1,4 @@
+# ruff: noqa: E501, N806
 """Data assembly for the tactical bake-off (MS2, 05 §3.7, §7.3, §8). No database access.
 
 * Features: ``features_tech.parquet`` (P3) joined with ``universe_member.parquet`` (ADV63) and, for the subset tiers,

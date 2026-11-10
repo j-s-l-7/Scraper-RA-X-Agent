@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Persist MS2 results into schema ``ideation`` (model rows, wf_result, oos_prediction, experiment_trial). Writes only
 through the guarded writer. Models get status ``candidate``: promotion is manual (03 A12), never done here."""
 
@@ -33,7 +34,8 @@ def model_id(conn: GuardedConnection, spec: TrialSpec, horizon: str, selection: 
     fam = spec.config.get("learner") or spec.config.get("model") or spec.config.get("consensus")
     row = conn.execute(
         "insert into ideation.model (horizon, family, params, selection, status) values (%s, %s, %s::jsonb, %s::jsonb,"
-        " 'candidate') returning model_id", (horizon, str(fam), canonical_json(params), canonical_json(selection))
+        " 'candidate') returning model_id",
+        (horizon, str(fam), canonical_json(params), canonical_json(selection)),
     ).fetchone()
     assert row is not None
     return int(row[0])
@@ -62,9 +64,21 @@ def write_oos(conn: GuardedConnection, trial_id: int, sc: pd.DataFrame, raw: pd.
     d["p"] = percentile(d["score"], by=d["anchor"].to_numpy())
     d["bucket"] = decile(d["p"]).astype(int)
     d["label"] = d.groupby("anchor")["ret_3m"].transform(lambda s: rank_gauss(s))
-    d["fold"] = d["fold"] if "fold" in d else "consensus"
+    if "fold" not in d:
+        d["fold"] = "consensus"
     conn.execute("delete from ideation.oos_prediction where trial_id = %s", (trial_id,))
-    cols = ["trial_id", "anchor", "security_id", "score", "p", "bucket_dec", "label", "ret_total", "excess_univ_med", "fold"]
+    cols = [
+        "trial_id",
+        "anchor",
+        "security_id",
+        "score",
+        "p",
+        "bucket_dec",
+        "label",
+        "ret_total",
+        "excess_univ_med",
+        "fold",
+    ]
     gen = ((trial_id, a.date(), int(s), _f(sc_), _f(p), int(b), _f(lb), _f(r), _f(e), str(f)) for a, s, sc_, p, b, lb, r, e, f in
            zip(d["anchor"], d["security_id"], d["score"], d["p"], d["bucket"], d["label"], d["ret_3m"], d["exu_3m"],
                d["fold"].fillna("consensus"), strict=True))  # fmt: skip

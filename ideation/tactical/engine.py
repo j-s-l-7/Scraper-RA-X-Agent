@@ -1,3 +1,4 @@
+# ruff: noqa: E501, N803, N806
 """Walk-forward and CPCV runners with per-(trial, fold) parquet checkpoints (MS2). No database access.
 
 Checkpoint directory: ``<root>/<kind>/<num>_<id>_<config_hash12>_<CODE_VERSION>/`` so a changed config or code version

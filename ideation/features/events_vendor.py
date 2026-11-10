@@ -177,11 +177,11 @@ def validity_gate(view: PitView, params: dict[str, Any], *, min_events: int = 50
 
 def validity_gate_p3(view: PitView, params: dict[str, Any], ear_panel: pd.DataFrame, sessions: np.ndarray,
                      *, min_events: int = 500) -> dict[str, Any]:  # fmt: skip
-    """Same 05 §6.3 gate with P3's ``ear_3d`` (``features/events.py``, as stored in ``features_tech`` at monthly anchors)
-    instead of the local computation. A vendor event is matched to the P3 value of its (security, anchor) when the
-    sessions-since-event count ``ear_days`` agrees with the vendor event date (same event, not a later one); each event is
-    kept once, at its first anchor. ``ear_panel``: anchor, security_id, ear_3d, ear_days; ``sessions``: sorted
-    datetime64[D] exchange sessions."""
+    """Same 05 §6.3 gate with P3's ``ear_3d`` (``features/events.py``, as stored in ``features_tech`` at monthly
+    anchors) instead of the local computation. A vendor event is matched to the P3 value of its (security, anchor)
+    when the sessions-since-event count ``ear_days`` agrees with the vendor event date (same event, not a later
+    one); each event is kept once, at its first anchor. ``ear_panel``: anchor, security_id, ear_3d, ear_days;
+    ``sessions``: sorted datetime64[D] exchange sessions."""
     lo, hi = pd.Timestamp(params["gate_from"]), pd.Timestamp(params["gate_to"])
     ev = _events(view)
     ev = ev[(ev["event_date"] >= lo) & (ev["event_date"] <= hi) & np.isfinite(ev["surp"])]
@@ -215,12 +215,18 @@ def validity_gate_p3(view: PitView, params: dict[str, Any], ear_panel: pd.DataFr
         "ear_source": "P3 features/events.py (features_tech.ear_3d at monthly anchors)",
         "gate_from": str(lo.date()), "gate_to": str(hi.date()),
         "estimator": "pooled Spearman, t from quarter-clustered (CR1) SE",
-        "n_vendor_events_in_window": int(len(m)), "n_events": main["n"], "match_rate": matched / max(len(m), 1),
+        "n_vendor_events_in_window": len(m), "n_events": main["n"], "match_rate": matched / max(len(m), 1),
         "n_quarters": main["clusters"], "rho": main["rho"], "t_clustered": main["t"],
         "fama_macbeth_mean_rho": float(per_q.mean()), "fama_macbeth_t": fm_t,
         "share_positive_quarters": float((per_q > 0).mean()), "passed": passed,
     }  # fmt: skip
 
 
-__all__ = ["VendorNotAllowedError", "build_vendor", "clustered_spearman", "surprise_pct", "validity_gate",
-           "validity_gate_p3"]
+__all__ = [
+    "VendorNotAllowedError",
+    "build_vendor",
+    "clustered_spearman",
+    "surprise_pct",
+    "validity_gate",
+    "validity_gate_p3",
+]

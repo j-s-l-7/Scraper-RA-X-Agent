@@ -35,6 +35,13 @@ def test_tables_and_constraints(ddl_sandbox: GuardedConnection) -> None:
 
 def test_register_then_train_guard(ddl_sandbox: GuardedConnection) -> None:
     conn = ddl_sandbox
+    # The live table holds real registered trials by now; clear them inside this rolled-back transaction
+    # so the test sees an empty registry (the sandbox ROLLBACK restores them).
+    conn.execute(
+        "delete from ideation.oos_prediction where trial_id in"
+        " (select trial_id from ideation.experiment_trial where family in ('1Y-june', 'tactical-3M'))"
+    )
+    conn.execute("delete from ideation.experiment_trial where family in ('1Y-june', 'tactical-3M')")
     one_y, tactical = load_family("1Y-june"), load_family("tactical-3M")
     first = register(conn, one_y)
     assert len(first.inserted) == 50

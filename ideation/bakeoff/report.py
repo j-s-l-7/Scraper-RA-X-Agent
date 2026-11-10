@@ -95,7 +95,9 @@ def sharpe_of(x: pd.Series) -> float:
     return float(v.mean() / v.std(ddof=1)) if len(v) > 1 and v.std(ddof=1) > 0 else float("nan")
 
 
-def apply_family(tds: dict[str, TD], family_n: int, n_boot: int = N_BOOT) -> dict[str, Any]:
+def apply_family(
+    tds: dict[str, TD], family_n: int, splits: list[CPCVSplit] | None = None, n_boot: int = N_BOOT
+) -> dict[str, Any]:
     """DSR per trial (IC series and cost-adjusted Q5-Q1), 90/10 scores, paired ΔIC vs the baseline, CPCV and PBO."""
     sr_ic = {k: sharpe_of(t.stats["ic_counted"]) for k, t in tds.items() if len(t.stats["ic_counted"]) >= 3}
     sr_sp = {
@@ -126,7 +128,7 @@ def apply_family(tds: dict[str, TD], family_n: int, n_boot: int = N_BOOT) -> dic
     for k in elig:
         tds[k].stats["selection_9010"] = float(scores[k])
     champion = scores.idxmax() if len(scores) else None
-    pbo = pbo_for_family(tds)
+    pbo = pbo_for_family(tds, splits)
     return {"eligible": elig, "champion": champion, "selection": scores.sort_values(ascending=False), "pbo": pbo,
             "family_n": family_n, "sr_ic": sr_ic}  # fmt: skip
 

@@ -26,26 +26,33 @@ N_BOOT = 10_000
 
 
 def boot_ic_over_names(
-    score: np.ndarray, label: np.ndarray, *, n_boot: int = N_BOOT, seed: int = 0, chunk: int = 1000
+    score: np.ndarray, label: np.ndarray, *, n_boot: int = N_BOOT, seed: int = 0, chunk: int = 500, workers: int = 4
 ) -> tuple[float, float]:
-    """90% CI of the rank IC by resampling names (table R-B), fully vectorised Spearman."""
+    """90% CI of the rank IC by resampling names (table R-B): vectorised Spearman, chunks ranked on ``workers`` threads
+    (numpy's sort releases the GIL, so this stays inside the 4-thread budget)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     s, y = np.asarray(score, float), np.asarray(label, float)
     ok = np.isfinite(s) & np.isfinite(y)
     s, y = s[ok], y[ok]
     n = len(s)
     if n < 10:
         return float("nan"), float("nan")
-    rng = np.random.default_rng(seed)
-    out = np.empty(n_boot)
-    for i in range(0, n_boot, chunk):
-        b = min(chunk, n_boot - i)
-        idx = rng.integers(0, n, size=(b, n))
+    starts = list(range(0, n_boot, chunk))
+    seeds = np.random.SeedSequence(seed).spawn(len(starts))
+
+    def one(i: int) -> np.ndarray:
+        b = min(chunk, n_boot - starts[i])
+        idx = np.random.default_rng(seeds[i]).integers(0, n, size=(b, n))
         rs = rankdata(s[idx], axis=1)
         ry = rankdata(y[idx], axis=1)
         rs -= rs.mean(axis=1, keepdims=True)
         ry -= ry.mean(axis=1, keepdims=True)
         den = np.sqrt((rs * rs).sum(axis=1) * (ry * ry).sum(axis=1))
-        out[i : i + b] = np.where(den > 0, (rs * ry).sum(axis=1) / np.where(den > 0, den, 1), np.nan)
+        return np.where(den > 0, (rs * ry).sum(axis=1) / np.where(den > 0, den, 1), np.nan)
+
+    with ThreadPoolExecutor(workers) as ex:
+        out = np.concatenate(list(ex.map(one, range(len(starts)))))
     lo, hi = np.nanquantile(out, [0.05, 0.95])
     return float(lo), float(hi)
 

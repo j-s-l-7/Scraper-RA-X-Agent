@@ -35,7 +35,9 @@ def train_cmd(
     family: Annotated[str, typer.Option(help="Pre-registered family.")] = "1Y-june",
     trials: Annotated[str, typer.Option(help="Comma-separated trial ids to run (default: all runnable).")] = "",
     snap: Annotated[str, typer.Option(help="Snapshot id (default: latest with features).")] = "",
-    report: Annotated[bool, typer.Option("--report/--no-report", help="Compute tables/gates and persist after.")] = True,
+    report: Annotated[
+        bool, typer.Option("--report/--no-report", help="Compute tables/gates and persist after.")
+    ] = True,
 ) -> None:
     """Fit the pre-registered 1Y trials (walk-forward 2019-2024) [+ CPCV]; refuses an unregistered config hash."""
     _limit_threads()

@@ -929,3 +929,57 @@ Outputs (not in git): `outputs/<snap>/features_tech.parquet`, `regime_history.pa
 - CPI / IIP are NaN at late anchors (series stop); the broadcast scaler sets missing to the training mean, so a regime model trained on 2014-2025 sees "average inflation" in 2026.
 - 12 of 17 regime columns are only weakly informative on a 36-month window (36 distinct values per column); the 90/10 rule decides whether regime stays.
 - Ownership changes are updated once a year (April) and are stale between; they are T1 only.
+
+## MS2: tactical bake-off (family `tactical-3M`, branch `phase-ms2-tactical-bakeoff`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`. `ideation trials register --family tactical-3M` inserted 25 rows (N = 25;
+the family was empty before). `config/trials_tactical.yaml` is not edited after registration (any change is a new hash and a
+new trial). `ideation init-db` is never run from this worktree; the real ledger is already at version 12.
+
+### Protocol frozen BEFORE any fit (forking-path guard)
+1. **Horizons.** 3M is the only selecting horizon. 1M comes from the SAME fits (3M target, embargo 3 anchors) scored against
+   the 1M labels of the same test anchors; it therefore inherits the stricter 3M embargo. Never used for selection.
+2. **Target.** Rank-gauss of `ret_total` (3M) within the trial's universe at each anchor (U_score_T; U_score_T with
+   ADV63 >= 0.5 cr for #21). R1 = `rank.transform.xs_transform` (global spec) per anchor; one matrix per (feature set,
+   row subset), cached; legal because R1 is per cross-section.
+3. **Feature sets by source/set, never `reg.names()` globally.** T0 = `tech`; T0_regime = `tech` + `regime` (broadcast columns
+   passed to `make_learner(broadcast=...)`); T1 = `tech` + `t1` (`isna_event` passes through raw, it is already a flag);
+   T1_text = T1 + `text`; T1_vsurp = T1 + `vendor`. `scr` gets the priors of the trial's own columns only.
+4. **Windows.** Rolling 36 usable anchors, 12-anchor test blocks, purge `label_end <= T` (03 C3), embargo 3 anchors.
+   T0 counted OOS 2014-01..2025-06 (12 blocks); the first block trains on fewer than 36 anchors (history starts 2011-01).
+   T1 / VSURP: train_start 2020-04-30, counted OOS 2023-01..2025-06; TEXT: train_start 2019-01-31, counted OOS 2022-01..2025-06.
+   Blocks start at each trial's own counted-OOS start; short first-window training sets are reported.
+5. **Subset trials (#17-20).** Filter to `isna_text == 0` (resp. `isna_vsurp == 0`) BEFORE R1 so nothing is zero-filled into
+   an uncovered name. `allow_vendor_estimates=True` is read from the trial config only. Paired control = the same learner on
+   T1 columns only, same covered rows, same folds, same `train_start` (a protocol arm, NOT a new trial, not in N). Paired
+   per-anchor delta-IC with a stationary bootstrap (>= 10,000). Secondary: the full-universe T1 trial scores restricted to the
+   same names. #19-20 run only if the vendor gate (re-run with P3's `ear_3d`) passes.
+6. **Selection pool for 90/10.** Window-comparable pool = the 21 fitted/composite trials with counted OOS 2014-01..2025-06
+   (#1-13, #21, #25, plus consensus #22-24 for IC, no stability => z = 0). The short-window trials (#14-20) are compared
+   only by paired deltas over their own window (vs the T0 trial restricted to the same anchors / same names) and by their own
+   IC; they are not z-scored against the long-window pool. Selecting rule: `0.9 z(mean OOS IC, 3M) + 0.1 z(stability)`.
+7. **Consensus scalar scores** (members = the 10 `consensus_members`, p = per-anchor percentile): CONS_MAJ_T = the 6th largest
+   p across the members (>= 0.9 iff >= 6 members have the name in D10); CONS_UNAN_T = min over members of p (>= 0.9 iff all 10
+   have it in D10); ENS_RANKAVG_T = mean p. These scores feed IC, DSR and PBO; the set-level C_maj / C_unan results are reported.
+8. **CPCV rule.** Top 3 by the 90/10 score among the *fitted single-model* trials plus the baselines; a consensus trial in the
+   top 3 is replaced by running CPCV for its members only if budget allows, otherwise reported as "not run" with the reason.
+   Baselines (no fit): T_EW_SIGNPRIOR and MOM_12_1 (and the other 3.6 benchmarks). CPCV: 12 groups over 2011-01..2025-06 (66
+   splits, 11 paths), embargo 3.
+9. **PBO** = CSCV, S = 12, on the T x N matrix of monthly OOS ICs of the long-window pool; trials with shorter series are
+   excluded from the matrix (reported). **DSR** on the IC series and the cost-adjusted Q5-Q1 series with N = 25 and the
+   cross-trial variance of per-observation Sharpe ratios of the pool.
+10. **Baseline that ships if the champion fails.** Non-inferiority (C9, 02 5.5 gate 3) is tested against T_EW_SIGNPRIOR (the
+    sign-prior composite of the same tactical features) AND against MOM_12_1; if the champion fails the gates, the better of
+    the two baselines by mean 3M IC ships and the report says so. Tactical gates (02 5.5): mean IC >= 0.02 with NW t >= 2.0
+    (lag 2 for 3M, 0 for 1M), 95% block-bootstrap CI excludes 0, DSR >= 0.95, cost-adjusted Q5-Q1 > 0 after 2 x 12 bps x
+    measured turnover, positive in >= 55% of months, PBO <= 0.5, adversarial AUC <= 0.70.
+11. **Storage.** `ideation.model` row per (trial, horizon) with status `candidate` (never `champion`: promotion is manual, A12)
+    feeds `wf_result`; `oos_prediction` holds the 3M rows (no horizon column); 1M scores live in parquet + `wf_result` rows of
+    the 1M model; `experiment_trial` gets status, n_oos, ic_series, spread_series, run_id.
+12. **Compute.** <= 4 threads, `nice -n 10`, per-(trial, fold) checkpoints keyed by config hash + code version. Bootstrap >= 10,000.
+    Fixed hyperparameters (no tuning); lgbm/xgb weak-signal attenuation (E1 T-05) is a known limitation and is reported.
+
+### Hygiene disclosure
+During orientation a scratch script read `labels.parquet` directly (outside `load_labels`) and printed aggregates over all
+horizons (anchor ranges, non-null shares, exit-type counts, the first rows of the 2010 anchors). No sealed return value was
+printed or used. Every later label read goes through `load_labels(unsealed_only(...))`.

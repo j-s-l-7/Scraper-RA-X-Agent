@@ -175,6 +175,10 @@ def validity_gate(view: PitView, params: dict[str, Any], *, min_events: int = 50
     }  # fmt: skip
 
 
+def _rho(d: pd.DataFrame) -> float:
+    return float(d["surp"].corr(d["ear_3d"], method="spearman"))
+
+
 def validity_gate_p3(view: PitView, params: dict[str, Any], ear_panel: pd.DataFrame, sessions: np.ndarray,
                      *, min_events: int = 500) -> dict[str, Any]:  # fmt: skip
     """Same 05 §6.3 gate with P3's ``ear_3d`` (``features/events.py``, as stored in ``features_tech`` at monthly
@@ -206,7 +210,7 @@ def validity_gate_p3(view: PitView, params: dict[str, Any], ear_panel: pd.DataFr
     main = clustered_spearman(ep["surp"].to_numpy(), ep["ear_3d"].to_numpy(), q)
     per_q = (
         ep.assign(q=q).groupby("q")
-        .apply(lambda d: d["surp"].corr(d["ear_3d"], method="spearman") if len(d) >= 10 else np.nan, include_groups=False)
+        .apply(lambda d: _rho(d) if len(d) >= 10 else np.nan, include_groups=False)
         .dropna()
     )  # fmt: skip
     fm_t = float(per_q.mean() / (per_q.std(ddof=1) / np.sqrt(len(per_q)))) if len(per_q) > 2 else float("nan")

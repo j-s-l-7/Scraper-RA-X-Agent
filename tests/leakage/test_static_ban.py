@@ -21,7 +21,7 @@ from ideation.config import REPO_ROOT
 from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
-BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime")
+BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime", "tactical")
 BAN_ALLOWLIST: frozenset[str] = frozenset({"ideation/features/events_vendor.py"})  # 05 O5: the single entry
 IMPORT_RESTRICTED = ("features", "models", "universe", "regime")
 FORBIDDEN_IMPORTS = ("ideation.lake", "ideation.labels", "psycopg", "psycopg2")

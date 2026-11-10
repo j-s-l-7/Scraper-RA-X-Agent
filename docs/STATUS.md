@@ -756,3 +756,92 @@ per-quarter tone table (mean tone_net, mean d_tone, share negative, n) on every 
 - Tone is positive-skewed (mean tone_net ~0.6); PT2 uses within-company deltas, which the 2020-Q1 check supports.
 - Non-BSE transcripts (about 4,500) carry statutory floors only, which can be later than the true filing but not earlier.
 - `qa_ok` PPTs are ~0%; `qa_*` features are transcript-only.
+
+## PT2: text PIT features + vendor-surprise gate (branch `phase-pt2-text-features`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`, PT1 output `doc_features_LEX_V1.parquet` (53,949 docs). No migration (020-024
+unused); `init-db` never run from the worktree. The `outcomes/` module is NOT built here (moved to MS1-text, 05 §10.2.c).
+
+### What was built
+- `PitStore(text_dir=...)` serves PT1's parquet as dataset `text_docs` (unreadable docs dropped, `role='data'` added,
+  dates cast), so `poison_after` and the `available_from <= anchor` guard apply to it; accessor
+  `PitView.text_docs(doc_type, columns)`. `poison_after` passes `text_dir` through.
+- `ideation/features/text.py` + `config/features_text.yaml` (11 registered features, set `text`, `complete: false`, so they
+  never enter `feature_complete` or the U_score hook): `d_tone, d_guide, d_unc, tone_lvl, guide_lvl, gdn_r, capex_r, qa_tone,
+  qa_minus_prep, ppt_d_guide, ppt_capex_r`; flags `isna_text, isna_text_prev, isna_ppt`; provenance dates; `<f>_rg`.
+  Rules: visibility = `available_from` only (PT1's conservative 05 §7.2 value, not re-derived, asserted again in the builder);
+  `doc_date` (month-granular) only builds windows; cur = latest visible transcript with doc_date >= A-200 d; prev = latest
+  visible transcript with doc_date in [cur-400, cur-60]; PPTs same; no fill anywhere.
+- `ideation/features/events_vendor.py` + `config/features_vendor.yaml`: `f_vsurp_last, f_vbeat_4q, isna_vsurp`; refuses to run
+  unless `allow_vendor_estimates=True`; reads `PitView.earnings_vendor()` (caller gate unchanged); surprise recomputed
+  `100*(rep-est)/|est|` (est 0 -> NaN, winsor +-100); the only `BAN_ALLOWLIST` entry. `validity_gate()` = the 05 §6.3 gate.
+- CLI (registered onto the `text` sub-app from `ideation/features/text_cli.py`, because `ideation/text` may not import the DB
+  layer): `ideation text features [--anchors june,march,monthly] [--force]` and `ideation text vendor-gate`.
+  Outputs under `outputs/<snap>/`: `features_text.parquet`, `features_text_coverage.parquet`, `vendor_gate.json`; run row kind
+  `features_text` + `run_manifest` rows (key includes docs and universe file shas).
+- `registry.SETS` gains `text` and `vendor`. Callers that iterate `reg.names()` must pass `source=` (two P2 unit tests updated).
+- Static tests: `BAN_ALLOWLIST = {ideation/features/events_vendor.py}` plus tests that the list is exactly that, the module really
+  names the vendor columns, still obeys import/clock rules, and that a planted vendor literal elsewhere fails.
+
+### Commands and runtimes
+| command | result | runtime |
+|---|---|---|
+| `uv run ideation text features` (june,march,monthly) | 199 anchors, 273,230 rows | **44 s wall** (28.6 s build) |
+| `uv run ideation text vendor-gate` | PASS (below) | 65 s wall |
+| `uv run ruff check .` | clean | |
+| `uv run pytest -m "not lake"` | 520 passed, 1 skipped, 1 xfailed, 1 xpassed | 125 s |
+| `uv run pytest -m lake` | LAKE_RESULT | LAKE_TIME |
+| `uv run python scripts/secret_scan.py --all` | clean | |
+Total PT2 compute well inside the 10 min budget. New tests: unit `test_text_features.py` (8, incl. T-24 `test_text_availability` at
+feature level and a synthetic poison test), lake `test_pt2_text.py` (T-25 `test_text_future_poison` at 2019-06-28, 2022-01-31,
+2024-06-28 in all three modes bit-identical + positive control; vendor features poison; gate), leakage `test_static_ban.py` (+2).
+
+### Text coverage, universe-restricted (share of members with cur / cur+prev transcript / PPT)
+| anchor | U_score | cur | cur+prev | ppt | U_score_T | cur | cur+prev | ppt |
+|---|---|---|---|---|---|---|---|---|
+| 2016-06-30 | 827 | 13.1% | 7.5% | 22.7% | 971 | 10.4% | 6.1% | 18.9% |
+| 2017-06-30 | 921 | 17.0% | 14.3% | 27.4% | 1115 | 13.8% | 11.6% | 23.0% |
+| 2018-06-29 | 942 | 17.1% | 15.5% | 28.1% | 1058 | 15.0% | 13.6% | 24.2% |
+| 2019-06-28 | 863 | 26.9% | 23.9% | 45.5% | 960 | 24.1% | 21.4% | 41.4% |
+| 2020-06-30 | 857 | 26.4% | 24.7% | 44.0% | 946 | 23.6% | 22.3% | 40.4% |
+| 2021-06-30 | 1172 | 25.5% | 23.0% | 41.7% | 1288 | 23.5% | 21.1% | 38.6% |
+| 2022-06-30 | 1303 | 40.9% | 31.7% | 51.3% | 1355 | 37.2% | 29.1% | 46.5% |
+| 2023-06-30 | 1409 | 51.2% | 47.6% | 58.1% | 1511 | 47.8% | 44.7% | 53.7% |
+| 2024-06-28 | 1588 | 52.5% | 51.0% | 59.4% | 1725 | 47.2% | 46.1% | 54.0% |
+| 2025-06-30 | 1672 | 55.9% | 54.1% | 62.9% | 1821 | 50.1% | 48.6% | 56.8% |
+Monthly anchors, U_score_T, mean by year (cur / cur+prev): 2019 23.1/20.6, 2020 24.9/23.0, 2021 26.7/23.7, 2022 35.9/31.2,
+2023 47.7/45.1, 2024 47.3/45.9, 2025 50.9/49.2%. Tactical text tier: train from 2019-01 has ~21% covered names, counted OOS from
+2022-01 ~31-50%. 1Y: June 2019-2021 only ~24-27% covered, so 1Y text trials stay indicative. Pre-2015 June anchors have U_score of 13-25
+names (the feature_complete hook) and zero text; the full table is in the CLI output / `features_text_coverage.parquet`.
+
+### Vendor surprise validity gate (05 §6.3)
+Estimator printed with the number: pooled Spearman(recomputed surprise, `ear_3d`), t from quarter-clustered (CR1) SE. Events
+2015-01-01 .. 2025-06-30 with estimate and reported EPS: **n = 19,051, 42 quarters, rho = 0.318, t = 37.5 -> PASS (rho > 0, t > 3)**.
+Fama-MacBeth over quarters: mean rho 0.321, t 48.8, 100% of quarters positive. Per-year rho 0.297-0.335 every year; beat rate
+0.41-0.56, median |surprise| 13-28% (as in the 05 §0.1 probe). So trials #19-20 are NOT marked failed; MS2 may run them.
+`ear_3d` here: sum of adjusted log-returns over sessions [s(e)-1, s(e)+1] minus the equal-weight mean of the same window over
+other securities of the industry group (>= 3 peers; today's industry label).
+
+### Deviations from 05 and why
+- `outcomes/` not built (owner/orchestrator instruction; 05 §10.2.c).
+- Gate period capped at 2025-06-30 (not "2015-2025"): the sealed tactical window starts 2025-07-31 and announcement returns after
+  it are part of sealed 3M labels (05 §8). Events with s(e)+1 after the cap are not read.
+- `ear_3d` is computed locally in `events_vendor.py` because P3's `features/events.py` is not merged. Re-run the gate against
+  P3's `ear_3d` after the P3 merge (expected to agree; same definition).
+- Rank-gauss (05 §7.3): raw features are the modelling input (a trial's R1 runs on the `text_covered` subset, so the pool is
+  U_score at June anchors and U_score_T at monthly ones); `<f>_rg` columns are provided within covered members. R1 step c
+  (zero-fill of NaN) would be a fill into uncovered names, which 05 forbids, so text trials must filter to covered rows
+  (`isna_text == 0`) before R1; `isna_text_prev` rows additionally lack all `d_*` columns.
+- The gate on the vendor read is two-layered: the view's caller check (P1) plus the `allow_vendor_estimates` flag argument; the
+  builder cannot see `trial.config_json`, MS2 must pass it from the trial config.
+- Trials #19-20 status in `ideation.experiment_trial` not touched (gate passed; nothing to mark failed).
+
+### Risks
+- Text coverage is survivors-only (today's companies) and thin before 2022; June 1Y coverage 24-27% for 2019-2021.
+- yfinance estimates cannot be shown to be point-in-time; the gate's rho of 0.32 is consistent with as-of consensus but a
+  vendor back-fill on part of the rows would also correlate with the announcement return. `isna` and coverage selection (analyst
+  names only) remain; the challenger must still beat T1 on the same names.
+- Month-granular doc_date plus PT1's month-end floor make availability conservative (a late-month call is usable ~1-2 months
+  late); some signal is lost, none leaked. 0.7% of parsed `filed_date`s precede q_end (PT1 note): the month floor still applies.
+- Downstream builders (MS1/MS2) must select columns by `reg.names(source=...)`/`sets=`; `reg.names()` now spans text and vendor.
+- Doc-level quality filters (e.g. minimum `n_tok`) are not applied; short or garbled docs add noise to the deltas.

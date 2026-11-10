@@ -108,7 +108,8 @@ def technical_columns(ctx: AnchorContext, rrg: pd.DataFrame | None) -> pd.DataFr
     adv126 = _median_last(V, 126) if T >= 126 else np.full(len(col), np.nan)
     with np.errstate(invalid="ignore", divide="ignore"):
         ratio = adv20 / adv126
-    out["vol_ratio"] = np.where((adv20 > 0) & (adv126 > 0), np.log(ratio), np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out["vol_ratio"] = np.where((adv20 > 0) & (adv126 > 0), np.log(ratio), np.nan)
     conf = np.where((adv20 > 0) & (adv126 > 0), ratio > VOL_CONF, False)
     for tag, win, min_obs in (("1y", 252, 200), ("2y", 504, 400), ("3_4y", 1008, 756)):
         prior = Lm[-1 - win : -1] if win < T else Lm[:-1]

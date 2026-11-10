@@ -15,6 +15,7 @@ import multiprocessing as mp
 import sys
 import time
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Any
 
 import pandas as pd
@@ -37,19 +38,32 @@ REGIME_FILE = "regime_history.parquet"
 _G: dict[str, Any] = {}
 
 
+def _init_worker(
+    snapshot_dir: str, outputs_dir: str | None, config_dir: str, ucfg_raw: dict | None, rebuild: bool
+) -> None:
+    """Spawned workers build their own store (fork is not safe with the Accelerate BLAS used by numpy on macOS)."""
+    _G.update(
+        store=PitStore(Path(snapshot_dir), outputs_dir=Path(outputs_dir) if outputs_dir else None),
+        reg=load_registry(Path(config_dir)), ucfg=UniverseConfig(ucfg_raw) if ucfg_raw else None, rebuild=rebuild,
+    )  # fmt: skip
+
+
 def _work(anchor: date) -> tuple[date, AnchorResult]:
     return anchor, build_anchor(_G["store"], _G["reg"], _G["ucfg"], anchor, rebuild_universe=_G["rebuild"],
                                 with_rrg_table=False)  # fmt: skip
 
 
 def build_all(store: PitStore, reg: Registry, ucfg: UniverseConfig | None, anchors: list[date], *,
-              workers: int = 1, rebuild_universe: bool = False) -> tuple[pd.DataFrame, pd.DataFrame, list]:  # fmt: skip
+              workers: int = 1, rebuild_universe: bool = False, config_dir: Path | None = None
+              ) -> tuple[pd.DataFrame, pd.DataFrame, list]:  # fmt: skip
     """(features, regime history, manifest records) for ``anchors``; rows sorted by (anchor, security_id)."""
-    _G.update(store=store, reg=reg, ucfg=ucfg, rebuild=rebuild_universe)
     if workers > 1:
-        with mp.get_context("fork").Pool(workers) as pool:
-            results = pool.map(_work, anchors, chunksize=1)
+        init = (str(store.snapshot_dir), str(store.outputs_dir) if store.outputs_dir else None,
+                str(config_dir or get_settings().config_dir), ucfg.raw if ucfg else None, rebuild_universe)  # fmt: skip
+        with mp.get_context("spawn").Pool(workers, initializer=_init_worker, initargs=init) as pool:
+            results = pool.map(_work, anchors, chunksize=4)
     else:
+        _G.update(store=store, reg=reg, ucfg=ucfg, rebuild=rebuild_universe)
         results = [_work(a) for a in anchors]
     results.sort(key=lambda t: t[0])
     feats = pd.concat([r.features for _, r in results], ignore_index=True)

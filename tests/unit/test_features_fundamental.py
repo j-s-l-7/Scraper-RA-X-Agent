@@ -220,7 +220,7 @@ def test_output_is_sorted_and_flag_columns_present(store: PitStore) -> None:
     f = build_fundamental(store.as_of(A), members(range(8, 0, -1)), REG)
     assert f["security_id"].is_monotonic_increasing
     assert set(FLAG_COLS) <= set(f.columns)
-    assert set(REG.names()) <= set(f.columns)
+    assert set(REG.names(source="features_fundamental.yaml")) <= set(f.columns)
 
 
 def test_growth_flag_marks_repeated_extreme_growth(store: PitStore) -> None:
@@ -248,7 +248,7 @@ def test_registry_loads_and_exposes_model_keys() -> None:
     assert pri["nd_ebitda"] == -1
     assert REG.families()["roe_3y"] == REG.families()["roe"]
     assert REG.growth_cols() >= {"rev_g1", "eps_g1", "eps_g3", "rev_g3"}
-    assert REG.broadcast_cols() == frozenset()
+    assert not {n for n in REG.broadcast_cols() if REG.features[n].source == "features_fundamental.yaml"}
     assert "size" not in REG.names(sets=["core"])
     assert "eps_g5" not in REG.names(sets=["core", "ext"])
 

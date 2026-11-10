@@ -82,7 +82,7 @@ def fpi_flow_by_group(view, map_path: Path | None = None) -> pd.Series:
     n_rep = net.groupby("group")["report_date"].nunique()
     auc = fp[fp["measure"] == "auc_end"]
     last = auc.groupby("group")["report_date"].max()
-    auc_last = auc.merge(last.rename("last"), left_on="group", right_index=True)
+    auc_last = auc.merge(last.rename("last").reset_index(), on="group")
     auc_last = auc_last[auc_last["report_date"] == auc_last["last"]].groupby("group")["inr_cr"].sum()
     fresh = last >= a - timedelta(days=FPI_MAX_STALE_DAYS)
     val = (flow / auc_last).where((n_rep >= FPI_MIN_REPORTS) & fresh & (auc_last > 0))

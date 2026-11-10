@@ -8,6 +8,7 @@
 | PT1 text extraction | done (merged to `main`) | see "PT1" below |
 | E1 eval stack + zoo | done, merged to `main` (synthetic only; one known gap, see E1) | see "E1" below |
 | P2 fundamental features | done (merged to `main`; features, universes and labels rebuilt on `main` 2026-11-06 with the feature-completeness hook) | see "P2" below |
+| P3 technical / regime / RRG / events | done (branch `phase-3-technical-regime`, orchestrator merges) | see "P3" below |
 
 ## Phase 0
 
@@ -756,3 +757,82 @@ per-quarter tone table (mean tone_net, mean d_tone, share negative, n) on every 
 - Tone is positive-skewed (mean tone_net ~0.6); PT2 uses within-company deltas, which the 2020-Q1 check supports.
 - Non-BSE transcripts (about 4,500) carry statutory floors only, which can be later than the true filing but not earlier.
 - `qa_ok` PPTs are ~0%; `qa_*` features are transcript-only.
+
+## P3: technical, ownership, regime, RRG, events
+
+Date 2026-11-11. Branch `phase-3-technical-regime` (from `main` 7f21625's parent line), pushed per chunk, not merged. Snapshot
+`20261105-e33e7986`. No migration (025-029 unused: `regime_snapshot` / `sector_rotation` already exist in 001).
+`ideation init-db` was never run from the worktree.
+
+### What was built
+- `ideation/regime/`: `context.py` (one panel read per anchor, daily returns, liquidity-screened EW group / sector / market
+  composites with group -> sector -> market fallback), `rrg.py` (JdK RS-Ratio / RS-Momentum on anchor-aligned weekly points,
+  `variant="dossier"` 60-week ROC, quadrants), `rotation.py` (group, sector and official-index RRG tables; indices with
+  < 400 sessions of history are excluded), `macro.py` (CPI / IIP latest released print with staleness, INR / WTI / US10Y 3M changes
+  read one session late, India VIX same day), `regime.py` (breadth, divergence, vol / trend vector, labels).
+- `ideation/features/{technical,flows,events}.py`, `tech_build.py` (assembly + `trainable_from` mask), `tech_cli.py`
+  (`ideation features-tech build | regime | history`, registered by one `add_typer` line).
+- `config/features_technical.yaml` (39 price / volume / delivery / ownership / FPI columns + 17 `regime_*` columns declared
+  `kind: broadcast`), `config/features_events.yaml` (4 columns), `config/fpi_sector_map.yaml` (NSDL sector -> industry_group, both
+  taxonomies, split at 2022-04-30). Registry gained sets `tech` (T0), `t1`, `regime` and a `trainable_from` key; no P3 column is
+  in `core`/`ext`/`shown`. T0 = `tech`, T0_regime = `tech`+`regime`, T1 = `tech`+`t1`; 1Y `core_mom` / `core_ext` pick names from `tech`/`regime`.
+- `pit/panel.py`: two rules added (see PIT rules) and `log_f` (factor effective on each session).
+- Tests: `tests/unit/test_features_tech.py` (22), `tests/leakage/test_p3_leakage.py` (9), `tests/lake/test_p3_features.py` (11);
+  `test_static_ban.py` now also scans `ideation/regime`. Two P2 tests were scoped to their own YAML (`names(source=...)`), which is
+  the only edit to P2 tests.
+
+### PIT rules and how the tests enforce them
+- **Rows must be available on their own date.** A price row with `available_from > date`, or a factor with `available_from > eff_date`,
+  is dropped by the panel (the snapshot has none: lake test counts 0 of 7,285,626 / all applied factors). Without this rule `poison_after`
+  injects fake rows dated before the poison date and shifted factors that corrupt an event window at a later anchor.
+- **Returns do not use the cumulative adjustment.** `r_t = close_t / close_{t-1} / exp(log_f_t)`; a corrupt factor dated after t cannot
+  reach it. `close_adj` (levels, momentum, MAs) still uses all factors known at the anchor.
+- **ear_3d**: window = sessions e'-1, e', e'+1 (e' = first session on/after the event date); the event is eligible only if s(e'+1) <= s(A) on
+  the exchange calendar; the value is built from raw closes and the factors effective inside the window only, plus the group composite
+  on those sessions. Poison test: everything with `available_from` after s(e'+1) is poisoned (nan / shuffle / inflate) at a later anchor,
+  `ear_3d` unchanged to 1e-12, `pead_drift` changes (positive control); lake test: `ear_3d` of the same events at an anchor 15 sessions later differs by < 1e-9.
+- **Foreign macro one-session lag** (INR=X, CL=F, ^TNX): a test perturbs only rows dated on the anchor (features unchanged) and then the day before
+  (features change), since T-01 cannot detect a missing lag (the snapshot gives every daily code `available_from = date`). India VIX is same day (tested).
+- **CPI / IIP**: month M visible from month end + 15 d (CPI) / + 45 d (IIP): the test checks the day before and the release day.
+- **Ownership**: only frequency Y; latest row with a partner exactly 12 months earlier, <= 15 months old; quarterly rows with absurd values are in the
+  synthetic snapshot and never leak in. Trainable from 2018-06.
+- **T-01** (technical, flow, event, regime, RRG): synthetic (3 modes x 2 anchors) and lake (3 modes x {2019-06-28, 2023-06-30}, universe REBUILT
+  on the poisoned store): frames bit-identical (`check_exact`); positive control with an earlier poison date changes the frame.
+- `trainable_from` mask applied to the built matrix (test on synthetic and real 2019-02-28 matrices).
+
+### Commands and runtimes
+| command | result | runtime |
+|---|---|---|
+| `uv run ideation features-tech build --anchors monthly --workers 6 --force` | 199 monthly anchors (2010-04 .. 2026-10), 337,787 rows (every `traded_ok` security, flags `in_u_score` / `in_u_score_t`), 68 columns | **150 s** (limit 480 s; 1 worker is ~3.2 s per anchor in-process, ~11 min) |
+| `uv run ideation features-tech history --from 2020-01 --to 2020-07` | stored regime history | <2 s |
+| `uv run ideation features-tech regime --as-of latest` | regime vector, labels, RRG (22 groups, 12 sectors, 14 indices) at 2026-11-05; upserted `regime_snapshot` + 48 `sector_rotation` rows | ~8 s |
+
+Outputs (not in git): `outputs/<snap>/features_tech.parquet`, `regime_history.parquet`.
+
+### Measured
+- COVID low, 2020-03-31: `pct_above_200dma` **6.95%**, `pct_above_50dma` 2.2%, VIX 64.4 (percentile 98.9), Nifty 500 200-day gap -25%,
+  drawdown -31%, labels Down / Stressed / Narrow (acceptance < 15%).
+- Latest (2026-11-05): 50.0% above 200dma, VIX 15.8, labels Transition / Stressed / Neutral. CPI and IIP are NaN (last prints 2025-12 / 2026-03 are stale).
+  RRG leaders: Services, Construction Materials, Media, Textiles, IT, Autos, Realty; laggards: Chemicals, Oil & Gas, Capital Goods, Healthcare.
+  The three indices that start in 2026-10 are excluded.
+
+### Deviations (and why)
+- **Workers use `spawn`, not `fork`**: forked workers died silently (numpy Accelerate on macOS), so the pool hung. Spawned workers rebuild the store (~3 s).
+- **Membership** comes from the stored universe table (`PitView.universe()`; in-memory `build_universe` is ~1-2 s extra per anchor and would blow the budget). T-01 on the lake
+  rebuilds it on the poisoned store (`--rebuild-universe` in the CLI). Anchors not in the table (e.g. the latest session) are built in memory.
+- **Composites** are the EW mean of every company-linked security with a valid return and a liquid trailing ADV (>= 0.2 cr over the previous 63 sessions, t excluded), not the anchor's
+  universe members, so a composite value on a date is the same at every anchor. 01 §3.1 wants "full PIT universe" for breadth: breadth uses the anchor's `in_u_score_t` members.
+- **RRG weekly points are anchor-aligned** (A, A-5, A-10, ...), not Friday closes; the z windows use `min_periods` 26 of 52 so RRG exists from about 2011-09.
+- `config/lags.yaml` and `config/indices.yaml` of 01 P3 were not created: lags are code constants (P0 decision) and the index list is a constant in `rotation.py`.
+- `brk_*` volume confirmation uses the raw ratio ADV20 / ADV126 > 1.5 (05 §6.2's `vol_ratio > 1.5` is a log column otherwise); `brk_3_4y` is the 1008-session high with >= 756 valid sessions.
+- `beta_252` falls back to 1.0 (clip [-1, 3]) with no flag; `rrg_quad_grp` is ordinal (Lagging 0, Improving 1, Weakening 2, Leading 3).
+- Fundamental `features build` and universes untouched; features parquet covers every `traded_ok` security, not only U_score_T.
+- The "base-2024" CPI code of 01 §3.3 is not in the snapshot; the 2012-base series is used.
+
+### Risks
+- Live-state footprint: worktree runs wrote `run` rows (kinds `features_tech`, `regime`), `run_manifest` rows, one `regime_snapshot` row and 48 `sector_rotation` rows for 2026-11-05 into the live `ideation` schema.
+- `earnings_dates` come from Yahoo and cover 400-750 companies a year (mostly large / mid caps): `isna_event` is 1 for ~78% of rows; a wrong event date shifts the window silently.
+- Sector / industry labels and the stock-to-company link are today's (disclosed hindsight, as in P2).
+- CPI / IIP are NaN at late anchors (series stop); the broadcast scaler sets missing to the training mean, so a regime model trained on 2014-2025 sees "average inflation" in 2026.
+- 12 of 17 regime columns are only weakly informative on a 36-month window (36 distinct values per column); the 90/10 rule decides whether regime stays.
+- Ownership changes are updated once a year (April) and are stale between; they are T1 only.

@@ -71,7 +71,7 @@ def train_cmd(
     t0 = time.perf_counter()
     seconds: dict[str, float] = {}
 
-    def on_done(o) -> None:  # noqa: ANN001
+    def on_done(o) -> None:
         seconds[o.spec.trial_id] = round(o.seconds, 1)
         with Writer.from_settings(settings).connect() as c:
             c.execute(
@@ -83,9 +83,15 @@ def train_cmd(
     try:
         with threadpool_limits(int(THREADS)):
             outcomes = run_bakeoff(
-                specs, panels, reg, settings.data_dir, cpcv=cpcv, only=only,
-                log_fn=lambda m: console.print(f"[{time.strftime('%H:%M:%S')}] {m}", highlight=False), on_done=on_done,
-            )  # fmt: skip
+                specs,
+                panels,
+                reg,
+                settings.data_dir,
+                cpcv=cpcv,
+                only=only,
+                log_fn=lambda m: console.print(f"[{time.strftime('%H:%M:%S')}] {m}", highlight=False),
+                on_done=on_done,
+            )
     except BaseException:
         status = "failed"
         raise

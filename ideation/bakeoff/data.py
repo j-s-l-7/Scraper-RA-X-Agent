@@ -152,12 +152,15 @@ def build_matrix(
     bcols = [n for n in names if n in reg.broadcast_cols()]
     growth = reg.growth_cols()
     spec = TransformSpec(
-        kind=cfg["spec"], growth_mode=cfg["growth_mode"], growth_cols=growth, priors=reg.priors(),
+        kind=cfg["spec"],
+        growth_mode=cfg["growth_mode"],
+        growth_cols=growth,
+        priors=reg.priors(),
         broadcast_cols=frozenset(bcols),
-    )  # fmt: skip
+    )
     na_layout = na_layout_frame(rows, reg, [n for n in names if n in rows.columns])
     rows["layout"] = rows["layout"]
-    X = xs_transform(rows, names, spec, na_layout)
+    x = xs_transform(rows, names, spec, na_layout)
     raw = None
     if raw_input is not None:
         raw = raw_winsorized(rows, reg, list(raw_input), growth_mode=cfg["growth_mode"])
@@ -165,10 +168,21 @@ def build_matrix(
     for _, idx in rows.groupby("anchor", sort=True).groups.items():
         lab = rows.loc[idx, "ret_total"]
         y.loc[idx] = rank_gauss(lab).to_numpy()
-    meta = rows[["anchor", "security_id", "industry_group", "sector", "label_end", "ret_total", "excess_univ_med",
-                 "excess_n500_pr", "labelled"]].copy()  # fmt: skip
+    meta = rows[
+        [
+            "anchor",
+            "security_id",
+            "industry_group",
+            "sector",
+            "label_end",
+            "ret_total",
+            "excess_univ_med",
+            "excess_n500_pr",
+            "labelled",
+        ]
+    ].copy()
     meta["anchor"] = pd.to_datetime(meta["anchor"])
     meta["label_end"] = pd.to_datetime(meta["label_end"])
-    value_cols = [c for c in X.columns if not c.startswith(("isna_", "na_layout_"))]
+    value_cols = [c for c in x.columns if not c.startswith(("isna_", "na_layout_"))]
     core = [n for n in reg.names(sets=["core"], source="features_fundamental.yaml")]
-    return TrialMatrix(X, meta, y, value_cols, names, bcols, core, raw)
+    return TrialMatrix(x, meta, y, value_cols, names, bcols, core, raw)

@@ -1,4 +1,4 @@
-"""Statistics over the stored bake-off results: tables R-A..R-D, DSR/PBO/90-10, gates, RF lineage (05 §2, §8; 02 §5.5)."""
+"""Statistics over stored bake-off results: tables R-A..R-D, DSR/PBO/90-10, gates, RF lineage (05 §2, §8; 02 §5.5)."""
 
 from __future__ import annotations
 
@@ -77,10 +77,16 @@ def trial_stats(td: TD, family_n: int) -> dict[str, Any]:
     nested = M.nested_calibration(td.oos, td.counted, "nested")
     pooled = M.nested_calibration(td.oos, td.counted, "pooled")
     st: dict[str, Any] = {
-        "per_anchor": pa, "counted": c, "ic_counted": ic, "summary": summ,
-        "buckets": M.bucket_by_anchor(td.oos), "mono": M.monotonicity_rows(td.oos, td.counted),
-        "nested": nested, "pooled": pooled, "family_n": family_n,
-    }  # fmt: skip
+        "per_anchor": pa,
+        "counted": c,
+        "ic_counted": ic,
+        "summary": summ,
+        "buckets": M.bucket_by_anchor(td.oos),
+        "mono": M.monotonicity_rows(td.oos, td.counted),
+        "nested": nested,
+        "pooled": pooled,
+        "family_n": family_n,
+    }
     folds = [td.meta["folds"][k] for k in sorted(td.meta.get("folds", {}))]
     imps = [pd.Series(f["importance"]) for f in folds if f.get("importance")]
     st["stability"] = selection.stability(imps) if len(imps) >= 2 else float("nan")
@@ -102,11 +108,12 @@ def apply_family(
     sr_ic = {k: sharpe_of(t.stats["ic_counted"]) for k, t in tds.items() if len(t.stats["ic_counted"]) >= 3}
     sr_sp = {
         k: sharpe_of(t.stats["per_anchor"].loc[t.stats["counted"], "spread_q5_q1_cost_adj"])
-        for k, t in tds.items() if len(t.stats["counted"]) >= 3
-    }  # fmt: skip
+        for k, t in tds.items()
+        if len(t.stats["counted"]) >= 3
+    }
     arr_ic = np.array([v for v in sr_ic.values() if v == v])
     arr_sp = np.array([v for v in sr_sp.values() if v == v])
-    for k, t in tds.items():
+    for t in tds.values():
         ics = t.stats["ic_counted"]
         t.stats["dsr_ic"] = _dsr(ics, arr_ic, family_n)
         sp = t.stats["per_anchor"].loc[t.stats["counted"], "spread_q5_q1_cost_adj"]
@@ -129,8 +136,14 @@ def apply_family(
         tds[k].stats["selection_9010"] = float(scores[k])
     champion = scores.idxmax() if len(scores) else None
     pbo = pbo_for_family(tds, splits)
-    return {"eligible": elig, "champion": champion, "selection": scores.sort_values(ascending=False), "pbo": pbo,
-            "family_n": family_n, "sr_ic": sr_ic}  # fmt: skip
+    return {
+        "eligible": elig,
+        "champion": champion,
+        "selection": scores.sort_values(ascending=False),
+        "pbo": pbo,
+        "family_n": family_n,
+        "sr_ic": sr_ic,
+    }
 
 
 def _selectable(t: TD) -> bool:
@@ -165,15 +178,22 @@ def pbo_for_family(tds: dict[str, TD], splits: list[CPCVSplit] | None = None) ->
         k: t.stats["cpcv_ics"].groupby("anchor")["ic"].mean()
         for k, t in tds.items()
         if t.stats.get("cpcv_ics") is not None and t.spec.config["anchor_family"] == "june" and k not in CPCV_COPY_FROM
-    }  # fmt: skip
+    }
     if len(cols) < 3 or splits is None:
         return None
     mat = pd.DataFrame(cols).sort_index()
     is_p, oos_p = M.pbo_inputs(mat, splits)
     res = pbo_from_is_oos(is_p, oos_p)
     best = pd.Series(mat.columns[res.best_is]).value_counts()
-    return {"pbo": res.pbo, "n_splits": res.n_splits, "n_trials": res.n_trials, "best_is_counts": best.to_dict(),
-            "median_logit": float(np.median(res.logits)), "columns": list(mat.columns), "matrix": mat}  # fmt: skip
+    return {
+        "pbo": res.pbo,
+        "n_splits": res.n_splits,
+        "n_trials": res.n_trials,
+        "best_is_counts": best.to_dict(),
+        "median_logit": float(np.median(res.logits)),
+        "columns": list(mat.columns),
+        "matrix": mat,
+    }
 
 
 # ── gates (02 §5.5 with 05 O3) ───────────────────────────────────────────────────────────────────────────────
@@ -201,8 +221,14 @@ def gates(t: TD, fam: dict[str, Any], *, leakage_green: bool | None, adversarial
         "G5_leakage_adversarial": g5,
     }
     blocking = [v for v in parts.values() if v is not None]
-    return {**parts, "all_pass": bool(blocking and all(blocking) and None not in parts.values()), "need": need, "n": n,
-            "dsr": s["dsr_ic"].get("dsr"), "pbo": pbo}  # fmt: skip
+    return {
+        **parts,
+        "all_pass": bool(blocking and all(blocking) and None not in parts.values()),
+        "need": need,
+        "n": n,
+        "dsr": s["dsr_ic"].get("dsr"),
+        "pbo": pbo,
+    }
 
 
 # ── formatting ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -242,19 +268,27 @@ def table_ra(t: TD, scheme: str) -> pd.DataFrame:
         rows.append(
             {
                 "bucket": name,
-                "score range (latest)": f"{f(lt['score_lo'].iloc[0])} .. {f(lt['score_hi'].iloc[0])}" if len(lt) else "n/a",
+                "score range (latest)": f"{f(lt['score_lo'].iloc[0])} .. {f(lt['score_hi'].iloc[0])}"
+                if len(lt)
+                else "n/a",
                 "p range": f"{f(lt['p_lo'].iloc[0], 2)} .. {f(lt['p_hi'].iloc[0], 2)}" if len(lt) else "n/a",
-                "IS range": f"{round(100 * lt['p_lo'].iloc[0])} .. {round(100 * lt['p_hi'].iloc[0])}" if len(lt) else "n/a",
+                "IS range": f"{round(100 * lt['p_lo'].iloc[0])} .. {round(100 * lt['p_hi'].iloc[0])}"
+                if len(lt)
+                else "n/a",
                 "mean n": f(x["n"].mean(), 0),
-                "mean excess": f(x["mean_excess"].mean(), pct=True), "median excess": f(x["median_excess"].mean(), pct=True),
-                "hit": f(x["hit"].mean(), pct=True), "beat N500": f(x["beat_n500"].mean(), pct=True),
+                "mean excess": f(x["mean_excess"].mean(), pct=True),
+                "median excess": f(x["median_excess"].mean(), pct=True),
+                "hit": f(x["hit"].mean(), pct=True),
+                "beat N500": f(x["beat_n500"].mean(), pct=True),
                 "beat EW": f(x["beat_ew"].mean(), pct=True),
                 "alpha_iso (latest)": f(lc["alpha_iso"].iloc[0], pct=True) if len(lc) else "n/a",
-                "80% band (latest)": f"{f(lc['conf_lo'].iloc[0], pct=True)} .. {f(lc['conf_hi'].iloc[0], pct=True)}" if len(lc) else "n/a",
+                "80% band (latest)": f"{f(lc['conf_lo'].iloc[0], pct=True)} .. {f(lc['conf_hi'].iloc[0], pct=True)}"
+                if len(lc)
+                else "n/a",
                 "coverage": f(cr["coverage"].mean(), pct=True) if len(cr) else "n/a",
                 "anchors": len(x),
             }
-        )  # fmt: skip
+        )
     return pd.DataFrame(rows)
 
 
@@ -271,23 +305,42 @@ def table_rb(t: TD) -> pd.DataFrame:
     for a, r in pa.iterrows():
         rows.append(
             {
-                "anchor": a.date(), "set": "counted" if a in set(t.counted) else "indicative", "IC": f(r["ic"]),
-                "CI90 (names)": f"{f(r['ic_lo'])} .. {f(r['ic_hi'])}", "n scored": r["n_scored"], "coverage": f(r["coverage"], pct=True),
-                "D10-D1": f(r["spread_d10_d1"], pct=True), "Q5-Q1": f(r["spread_q5_q1"], pct=True),
-                "Q5-Q1 net 12bps": f(r["spread_q5_q1_cost_adj"], pct=True), "Q5 excess net": f(r["top_q5_excess_cost_adj"], pct=True),
+                "anchor": a.date(),
+                "set": "counted" if a in set(t.counted) else "indicative",
+                "IC": f(r["ic"]),
+                "CI90 (names)": f"{f(r['ic_lo'])} .. {f(r['ic_hi'])}",
+                "n scored": r["n_scored"],
+                "coverage": f(r["coverage"], pct=True),
+                "D10-D1": f(r["spread_d10_d1"], pct=True),
+                "Q5-Q1": f(r["spread_q5_q1"], pct=True),
+                "Q5-Q1 net 12bps": f(r["spread_q5_q1_cost_adj"], pct=True),
+                "Q5 excess net": f(r["top_q5_excess_cost_adj"], pct=True),
             }
-        )  # fmt: skip
+        )
     return pd.DataFrame(rows)
 
 
 def table_rc(t: TD) -> pd.DataFrame:
     m = t.stats["mono"].copy()
     m.index = [a.date() for a in m.index]
-    rows = [{"anchor": a, "Spearman(decile, mean ret)": f(r["spearman_decile"]), "P99>P95>D10>D9": f(bool(r["top_order"])),
-             "P1<P5<D1<D2": f(bool(r["bottom_order"]))} for a, r in m.iterrows()]  # fmt: skip
+    rows = [
+        {
+            "anchor": a,
+            "Spearman(decile, mean ret)": f(r["spearman_decile"]),
+            "P99>P95>D10>D9": f(bool(r["top_order"])),
+            "P1<P5<D1<D2": f(bool(r["bottom_order"])),
+        }
+        for a, r in m.iterrows()
+    ]
     n = len(m)
-    rows.append({"anchor": f"count of {n}", "Spearman(decile, mean ret)": f(m["spearman_decile"].mean()),
-                 "P99>P95>D10>D9": int(m["top_order"].sum()), "P1<P5<D1<D2": int(m["bottom_order"].sum())})  # fmt: skip
+    rows.append(
+        {
+            "anchor": f"count of {n}",
+            "Spearman(decile, mean ret)": f(m["spearman_decile"].mean()),
+            "P99>P95>D10>D9": int(m["top_order"].sum()),
+            "P1<P5<D1<D2": int(m["bottom_order"].sum()),
+        }
+    )
     return pd.DataFrame(rows)
 
 
@@ -296,14 +349,22 @@ def row_rd(t: TD, fam: dict[str, Any]) -> dict[str, Any]:
     sm = s["summary"]
     cp = s.get("cpcv")
     return {
-        "trial": t.tid, "mean IC": f(sm.get("mean")), "CI90": f"{f(sm['ci90'][0])} .. {f(sm['ci90'][1])}" if sm else "n/a",
-        "CI95": f"{f(sm['ci95'][0])} .. {f(sm['ci95'][1])}" if sm else "n/a", "pos": f"{(s['ic_counted'] > 0).sum()}/{len(s['ic_counted'])}",
-        "IC-IR": f(sm.get("ir")), "DSR(IC)": f(s["dsr_ic"].get("dsr")), "DSR(spread)": f(s["dsr_spread"].get("dsr")),
-        "PBO": f(fam["pbo"]["pbo"]) if fam.get("pbo") else "n/a", "90/10": f(s.get("selection_9010")),
-        "stab": f(s["stability"]), "CPCV mean IC": f(cp["mean_ic"]) if cp else "n/a",
-        "CPCV paths>0": f(cp["share_paths_positive"], pct=True) if cp else "n/a", "dIC vs base": f(s["vs_baseline"]["mean_delta"]) if s.get("vs_baseline") else "n/a",
+        "trial": t.tid,
+        "mean IC": f(sm.get("mean")),
+        "CI90": f"{f(sm['ci90'][0])} .. {f(sm['ci90'][1])}" if sm else "n/a",
+        "CI95": f"{f(sm['ci95'][0])} .. {f(sm['ci95'][1])}" if sm else "n/a",
+        "pos": f"{(s['ic_counted'] > 0).sum()}/{len(s['ic_counted'])}",
+        "IC-IR": f(sm.get("ir")),
+        "DSR(IC)": f(s["dsr_ic"].get("dsr")),
+        "DSR(spread)": f(s["dsr_spread"].get("dsr")),
+        "PBO": f(fam["pbo"]["pbo"]) if fam.get("pbo") else "n/a",
+        "90/10": f(s.get("selection_9010")),
+        "stab": f(s["stability"]),
+        "CPCV mean IC": f(cp["mean_ic"]) if cp else "n/a",
+        "CPCV paths>0": f(cp["share_paths_positive"], pct=True) if cp else "n/a",
+        "dIC vs base": f(s["vs_baseline"]["mean_delta"]) if s.get("vs_baseline") else "n/a",
         "P(dIC>0)": f(s["vs_baseline"]["p_gt0"]) if s.get("vs_baseline") else "n/a",
-    }  # fmt: skip
+    }
 
 
 def p_values(t: TD) -> dict[str, float]:

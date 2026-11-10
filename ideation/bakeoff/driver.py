@@ -78,9 +78,16 @@ def _attach_label_end(oos: pd.DataFrame, panel: Panel) -> pd.DataFrame:
 
 
 def run_bakeoff(
-    specs: list[TrialSpec], panels: dict[str, Panel], reg: Registry, data_root: Path, *, cpcv: bool = True,
-    only: set[str] | None = None, log_fn: Callable[[str], None] = print, on_done: Callable[[TrialOutcome], None] | None = None,
-) -> list[TrialOutcome]:  # fmt: skip
+    specs: list[TrialSpec],
+    panels: dict[str, Panel],
+    reg: Registry,
+    data_root: Path,
+    *,
+    cpcv: bool = True,
+    only: set[str] | None = None,
+    log_fn: Callable[[str], None] = print,
+    on_done: Callable[[TrialOutcome], None] | None = None,
+) -> list[TrialOutcome]:
     """Run (resume) every runnable trial. ``on_done`` is called after each trial (the CLI persists status there)."""
     ckpt_root = data_root / "bakeoff"
     cache: dict[tuple, TrialMatrix] = {}

@@ -79,8 +79,15 @@ def make_context(
 ) -> TrialContext:
     cfg = spec.config
     raw = model_inputs(cfg)
-    key = (cfg["anchor_family"], cfg["universe"], float(cfg["adv_floor_cr"]), cfg["features"], cfg["spec"],
-           cfg["growth_mode"], raw)  # fmt: skip
+    key = (
+        cfg["anchor_family"],
+        cfg["universe"],
+        float(cfg["adv_floor_cr"]),
+        cfg["features"],
+        cfg["spec"],
+        cfg["growth_mode"],
+        raw,
+    )
     if key not in cache:
         cache[key] = build_matrix(panel, cfg, reg, raw_input=raw)
     ckpt = ckpt_root / panel.snap_id / spec.config_hash[:12]
@@ -124,10 +131,12 @@ def _fit_predict(
     scored = m.meta.loc[te, SCORE_META].copy()
     scored["score"] = np.asarray(model.predict(design.loc[te], m.meta.loc[te]), dtype=float)
     info: dict[str, Any] = {
-        "fit_seconds": round(fit_s, 2), "n_train": int(tr.sum()), "n_test": int(te.sum()),
+        "fit_seconds": round(fit_s, 2),
+        "n_train": int(tr.sum()),
+        "n_test": int(te.sum()),
         "warnings": list(getattr(model, "warnings_", [])),
         "empty": bool(getattr(model, "empty_", False) or not np.isfinite(scored["score"]).any()),
-    }  # fmt: skip
+    }
     if hasattr(model, "selection_"):
         info["selected"] = list(getattr(model.selection_, "selected", []))
     if importance and not info["empty"]:
@@ -143,10 +152,7 @@ def _importance(
     proto = ctx.cfg["protocol"]["wfo"]
     cols = value_columns(list(design.columns))
     xtr = design.loc[tr, cols]
-    if len(cols) < 2:
-        clusters = dict.fromkeys(cols, 1)
-    else:
-        clusters = feature_clusters(xtr.fillna(xtr.median(numeric_only=True)))
+    clusters = dict.fromkeys(cols, 1) if len(cols) < 2 else feature_clusters(xtr.fillna(xtr.median(numeric_only=True)))
     lab = te & m.meta["labelled"].to_numpy()
     meta_te = m.meta.loc[lab]
     x_te = design.loc[lab]
@@ -157,9 +163,14 @@ def _importance(
 
     # clusters cover value columns only; flags stay as they are
     imp = cluster_permutation_importance(
-        predict, x_te, y_te, meta_te["anchor"], clusters,
-        n_repeats=int(proto["importance_repeats"]), seed=int(proto["importance_seed"]),
-    )  # fmt: skip
+        predict,
+        x_te,
+        y_te,
+        meta_te["anchor"],
+        clusters,
+        n_repeats=int(proto["importance_repeats"]),
+        seed=int(proto["importance_seed"]),
+    )
     per_feature = feature_importance(imp, clusters)
     return {str(k): float(v) for k, v in per_feature.items()}
 

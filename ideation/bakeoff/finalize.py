@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from rich.console import Console
 
-from ideation.bakeoff import audit, report as RP
+from ideation.bakeoff import audit
 from ideation.bakeoff import metrics as M
+from ideation.bakeoff import report as RP
 from ideation.bakeoff.data import Panel, build_matrix
-from ideation.bakeoff.driver import is_text
 from ideation.bakeoff.models import model_inputs
 from ideation.cv.cpcv import cpcv_splits
 from ideation.features.registry import Registry
@@ -50,16 +48,28 @@ def benchmarks(panel: Panel, spec: TrialSpec, reg: Registry) -> tuple[pd.DataFra
         d = meta[["anchor", "security_id", "labelled", "ret_total", "excess_univ_med", "excess_n500_pr"]].copy()
         d["score"], d["label"] = score.to_numpy(), m.y.to_numpy()
         pa = M.per_anchor(d[d["anchor"].isin(counted)], n_boot=1000)
-        rows.append({"benchmark": name, "mean IC": RP.f(pa["ic"].mean()), "pos": f"{(pa['ic'] > 0).sum()}/{len(pa)}",
-                     "Q5 excess": RP.f(pa["top_q5_excess"].mean(), pct=True),
-                     "Q5 excess net 12bps": RP.f(pa["top_q5_excess_cost_adj"].mean(), pct=True)})  # fmt: skip
+        rows.append(
+            {
+                "benchmark": name,
+                "mean IC": RP.f(pa["ic"].mean()),
+                "pos": f"{(pa['ic'] > 0).sum()}/{len(pa)}",
+                "Q5 excess": RP.f(pa["top_q5_excess"].mean(), pct=True),
+                "Q5 excess net 12bps": RP.f(pa["top_q5_excess_cost_adj"].mean(), pct=True),
+            }
+        )
     for a in counted:
         g = meta[(meta["anchor"] == a) & meta["labelled"]]
         raw = panel.frame[(pd.to_datetime(panel.frame["anchor"]) == a)]
         n500 = float((raw["ret_total"] - raw["excess_n500_pr"]).median())
         cw = float((raw["ret_total"] - raw["excess_univ_med"]).median())
-        levels.append({"anchor": a.date(), "universe median TR": RP.f(cw, pct=True), "Nifty 500 PR": RP.f(n500, pct=True),
-                       "EW U_score TR": RP.f(g["ret_total"].mean(), pct=True)})  # fmt: skip
+        levels.append(
+            {
+                "anchor": a.date(),
+                "universe median TR": RP.f(cw, pct=True),
+                "Nifty 500 PR": RP.f(n500, pct=True),
+                "EW U_score TR": RP.f(g["ret_total"].mean(), pct=True),
+            }
+        )
     return pd.DataFrame(rows), pd.DataFrame(levels)
 
 
@@ -79,9 +89,18 @@ def adversarial_for(td: RP.TD, panel: Panel, reg: Registry) -> dict[str, Any]:
 
 
 def finalize(
-    settings: Any, family: str, snap_id: str, run_id: int | None, specs: list[TrialSpec], panels: dict[str, Panel],
-    reg: Registry, ids: dict[str, int], *, persist: bool = True, leakage_green: bool | None = None,
-) -> dict[str, Any]:  # fmt: skip
+    settings: Any,
+    family: str,
+    snap_id: str,
+    run_id: int | None,
+    specs: list[TrialSpec],
+    panels: dict[str, Panel],
+    reg: Registry,
+    ids: dict[str, int],
+    *,
+    persist: bool = True,
+    leakage_green: bool | None = None,
+) -> dict[str, Any]:
     t0 = time.perf_counter()
     data_root = settings.data_dir
     tds, missing = RP.load_trials(specs, panels, data_root)
@@ -103,8 +122,18 @@ def finalize(
     gate_rows = {k: RP.gates(tds[k], fam, leakage_green=leakage_green, adversarial=audits[k]["verdict"]) for k in focus}
     june = next(s for s in specs if s.config["anchor_family"] == "june")
     bench, levels = benchmarks(panels["june"], june, reg)
-    result = {"tds": tds, "missing": missing, "fam": fam, "audits": audits, "gates": gate_rows, "bench": bench,
-              "levels": levels, "run_id": run_id, "snap_id": snap_id, "family_n": family_n}  # fmt: skip
+    result = {
+        "tds": tds,
+        "missing": missing,
+        "fam": fam,
+        "audits": audits,
+        "gates": gate_rows,
+        "bench": bench,
+        "levels": levels,
+        "run_id": run_id,
+        "snap_id": snap_id,
+        "family_n": family_n,
+    }
     text = render(result, specs, leakage_green)
     out_dir = data_root / "reports" / "ms1"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +149,7 @@ def finalize(
 
 
 def headline(res: dict[str, Any]) -> str:
-    fam, tds, gates = res["fam"], res["tds"], res["gates"]
+    fam, _tds, gates = res["fam"], res["tds"], res["gates"]
     champ = fam["champion"]
     lines = [f"champion by 90/10 (N={res['family_n']}): {champ}"]
     for k, g in gates.items():
@@ -166,22 +195,42 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
         f"Leakage tests green: {RP.f(leakage_green)} (supplied by the runner). DSR uses N = {res['family_n']}.",
         "",
     ]
-    grows = [{"trial": k, **{a: RP.f(b) for a, b in g.items() if a not in ("need", "n")},
-              "adversarial": audits[k]["verdict"], "worst AUC": RP.f(audits[k]["worst_auc"])} for k, g in gates.items()]  # fmt: skip
+    grows = [
+        {
+            "trial": k,
+            **{a: RP.f(b) for a, b in g.items() if a not in ("need", "n")},
+            "adversarial": audits[k]["verdict"],
+            "worst AUC": RP.f(audits[k]["worst_auc"]),
+        }
+        for k, g in gates.items()
+    ]
     out += [RP.md(pd.DataFrame(grows)), ""]
     out += ["## RF lineage (RF_GLOBAL -> RF_GLOBAL_EXT -> {9010SEC, EXT_9010SEC} -> 90/10 pick)", ""]
     lin = []
     for k in RP.RF_LINEAGE:
         if k in tds:
             sm = tds[k].stats["summary"]
-            lin.append({"step": k, "mean IC": RP.f(sm["mean"]), "CI90": f"{RP.f(sm['ci90'][0])} .. {RP.f(sm['ci90'][1])}",
-                        "reference (not target)": RP.f(RP.REFERENCE.get(k)) if k in RP.REFERENCE else "n/a"})  # fmt: skip
-    lin.append({"step": f"90/10 pick: {fam['champion']}", "mean IC": RP.f(tds[fam['champion']].stats['summary']['mean']) if fam['champion'] else "n/a",
-                "CI90": "", "reference (not target)": RP.f(0.25)})  # fmt: skip
+            lin.append(
+                {
+                    "step": k,
+                    "mean IC": RP.f(sm["mean"]),
+                    "CI90": f"{RP.f(sm['ci90'][0])} .. {RP.f(sm['ci90'][1])}",
+                    "reference (not target)": RP.f(RP.REFERENCE.get(k)) if k in RP.REFERENCE else "n/a",
+                }
+            )
+    lin.append(
+        {
+            "step": f"90/10 pick: {fam['champion']}",
+            "mean IC": RP.f(tds[fam["champion"]].stats["summary"]["mean"]) if fam["champion"] else "n/a",
+            "CI90": "",
+            "reference (not target)": RP.f(0.25),
+        }
+    )
     out += [
         RP.md(pd.DataFrame(lin)),
         "",
-        "The dossier values (0.223 / 0.233 / 0.25) are on a different dataset, years and N; printed for reconciliation only.",
+        "The dossier values (0.223 / 0.233 / 0.25) are on a different dataset, years and N; "
+        "printed for reconciliation only.",
         "",
     ]
     out += ["## Benchmarks (bench-1Y, reported only, not in N)", "", RP.md(res["bench"]), "", RP.md(res["levels"]), ""]
@@ -190,7 +239,8 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
         out += [
             "## PBO (CPCV, 36 two-group combinations)",
             "",
-            f"PBO = {RP.f(p['pbo'])}, trials in the matrix = {p['n_trials']}, median logit = {RP.f(p['median_logit'])}. "
+            f"PBO = {RP.f(p['pbo'])}, trials in the matrix = {p['n_trials']}, "
+            f"median logit = {RP.f(p['median_logit'])}. "
             f"IS winners: {p['best_is_counts']}",
             "",
         ]
@@ -198,18 +248,35 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
     arows = []
     for k, a in audits.items():
         for fold, v in a["folds"].items():
-            arows.append({"trial": k, "fold": fold, "AUC values": RP.f(v["auc_values"], 2), "verdict": v["verdict"],
-                          "AUC +flags (info)": RP.f(v["auc_with_flags"], 2),
-                          "AUC +broadcast (info)": RP.f(v.get("auc_with_broadcast"), 2) if "auc_with_broadcast" in v else "n/a",
-                          "top shift features": ", ".join(n for n, _ in v["top_with_flags"][:3]), "OOD share": RP.f(v["ood_share"], pct=True)})  # fmt: skip
+            arows.append(
+                {
+                    "trial": k,
+                    "fold": fold,
+                    "AUC values": RP.f(v["auc_values"], 2),
+                    "verdict": v["verdict"],
+                    "AUC +flags (info)": RP.f(v["auc_with_flags"], 2),
+                    "AUC +broadcast (info)": RP.f(v.get("auc_with_broadcast"), 2)
+                    if "auc_with_broadcast" in v
+                    else "n/a",
+                    "top shift features": ", ".join(n for n, _ in v["top_with_flags"][:3]),
+                    "OOD share": RP.f(v["ood_share"], pct=True),
+                }
+            )
     out += [RP.md(pd.DataFrame(arows)), ""]
     out += ["## CPCV path distributions (36 splits, 8 paths)", ""]
     crows = []
     for k in order:
         c = tds[k].stats.get("cpcv")
         if c:
-            crows.append({"trial": k, "mean IC": RP.f(c["mean_ic"]), "min path": RP.f(c["min_path"]), "max path": RP.f(c["max_path"]),
-                          "paths > 0": RP.f(c["share_paths_positive"], pct=True)})  # fmt: skip
+            crows.append(
+                {
+                    "trial": k,
+                    "mean IC": RP.f(c["mean_ic"]),
+                    "min path": RP.f(c["min_path"]),
+                    "max path": RP.f(c["max_path"]),
+                    "paths > 0": RP.f(c["share_paths_positive"], pct=True),
+                }
+            )
     out += [RP.md(pd.DataFrame(crows)), ""]
     out += ["## Per-trial tables R-A (nested and pooled), R-B, R-C", ""]
     for k in order:
@@ -219,7 +286,22 @@ def render(res: dict[str, Any], specs: list[TrialSpec], leakage_green: bool | No
             out += [f"Empty folds (selection found nothing, score NaN): {t.stats['n_empty_folds']}", ""]
         if t.stats["warnings"]:
             out += ["Learner warnings: " + "; ".join(t.stats["warnings"]), ""]
-        out += ["R-A nested (decision grade; first counted anchor has no history)", "", RP.md(RP.table_ra(t, "nested")), "",
-                "R-A pooled-all-OOS (descriptive, uses later years)", "", RP.md(RP.table_ra(t, "pooled")), "",
-                "R-B IC by anchor", "", RP.md(RP.table_rb(t)), "", "R-C monotonicity", "", RP.md(RP.table_rc(t)), ""]  # fmt: skip
+        out += [
+            "R-A nested (decision grade; first counted anchor has no history)",
+            "",
+            RP.md(RP.table_ra(t, "nested")),
+            "",
+            "R-A pooled-all-OOS (descriptive, uses later years)",
+            "",
+            RP.md(RP.table_ra(t, "pooled")),
+            "",
+            "R-B IC by anchor",
+            "",
+            RP.md(RP.table_rb(t)),
+            "",
+            "R-C monotonicity",
+            "",
+            RP.md(RP.table_rc(t)),
+            "",
+        ]
     return "\n".join(out)

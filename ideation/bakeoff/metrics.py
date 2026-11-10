@@ -85,17 +85,27 @@ def per_anchor(oos: pd.DataFrame, *, n_boot: int = N_BOOT) -> pd.DataFrame:
         top_ex = float(ex[(q == 5).to_numpy()].mean())
         rows.append(
             {
-                "anchor": pd.Timestamp(anchor), "n_scored": int(g["score"].notna().sum()), "n_labelled": len(a),
-                "n_universe": len(g), "coverage": len(a) / len(g) if len(g) else np.nan, "ic": ic, "ic_lo": lo,
-                "ic_hi": hi, "spread_d10_d1": float(r[d == 10].mean() - r[d == 1].mean()),
-                "spread_q5_q1": spread_q, "turnover_q5": to5, "turnover_q1": to1,
-                "spread_q5_q1_cost_adj": spread_q - cost, "top_q5_excess": top_ex,
+                "anchor": pd.Timestamp(anchor),
+                "n_scored": int(g["score"].notna().sum()),
+                "n_labelled": len(a),
+                "n_universe": len(g),
+                "coverage": len(a) / len(g) if len(g) else np.nan,
+                "ic": ic,
+                "ic_lo": lo,
+                "ic_hi": hi,
+                "spread_d10_d1": float(r[d == 10].mean() - r[d == 1].mean()),
+                "spread_q5_q1": spread_q,
+                "turnover_q5": to5,
+                "turnover_q1": to1,
+                "spread_q5_q1_cost_adj": spread_q - cost,
+                "top_q5_excess": top_ex,
                 "top_q5_excess_cost_adj": top_ex - 2 * BPS / 1e4 * to5,
                 "hit_top": float((r[(d == 10).to_numpy()] > med).mean()),
-                "top_ret": float(r[(d == 10).to_numpy()].mean()), "bottom_ret": float(r[(d == 1).to_numpy()].mean()),
+                "top_ret": float(r[(d == 10).to_numpy()].mean()),
+                "bottom_ret": float(r[(d == 1).to_numpy()].mean()),
                 "bench_ret": med,
             }
-        )  # fmt: skip
+        )
         prev_q5, prev_q1 = q5, q1
     return pd.DataFrame(rows).set_index("anchor")
 
@@ -122,13 +132,21 @@ def bucket_by_anchor(oos: pd.DataFrame) -> pd.DataFrame:
                 continue
             rows.append(
                 {
-                    "anchor": pd.Timestamp(anchor), "bucket": b, "n": len(x), "mean_excess": x["excess_univ_med"].mean(),
-                    "median_excess": x["excess_univ_med"].median(), "mean_ret": x["ret_total"].mean(),
-                    "hit": (x["excess_univ_med"] > 0).mean(), "beat_n500": (x["excess_n500_pr"] > 0).mean(),
-                    "beat_ew": (x["excess_ew"] > 0).mean(), "score_lo": x["score"].min(), "score_hi": x["score"].max(),
-                    "p_lo": x["p"].min(), "p_hi": x["p"].max(),
+                    "anchor": pd.Timestamp(anchor),
+                    "bucket": b,
+                    "n": len(x),
+                    "mean_excess": x["excess_univ_med"].mean(),
+                    "median_excess": x["excess_univ_med"].median(),
+                    "mean_ret": x["ret_total"].mean(),
+                    "hit": (x["excess_univ_med"] > 0).mean(),
+                    "beat_n500": (x["excess_n500_pr"] > 0).mean(),
+                    "beat_ew": (x["excess_ew"] > 0).mean(),
+                    "score_lo": x["score"].min(),
+                    "score_hi": x["score"].max(),
+                    "p_lo": x["p"].min(),
+                    "p_hi": x["p"].max(),
                 }
-            )  # fmt: skip
+            )
     return pd.DataFrame(rows)
 
 
@@ -149,9 +167,10 @@ def monotonicity_rows(oos: pd.DataFrame, counted: Sequence[pd.Timestamp]) -> pd.
             {
                 "anchor": pd.Timestamp(anchor),
                 "spearman_decile": rank_ic(means.index.to_numpy(dtype=float), means.to_numpy()),
-                "top_order": top, "bottom_order": bottom,
+                "top_order": top,
+                "bottom_order": bottom,
             }
-        )  # fmt: skip
+        )
     return pd.DataFrame(rows).set_index("anchor")
 
 
@@ -209,12 +228,16 @@ def calibration_bucket_rows(cal: dict[str, Any], hist_all: pd.DataFrame) -> pd.D
             iso = float(sel["alpha"].mean()) if len(sel) else np.nan
         rows.append(
             {
-                "bucket": b, "n": len(sel), "alpha_raw": raw, "alpha_shrunk": 0.5 * raw if raw == raw else np.nan,
-                "alpha_iso": iso, "conf_lo": float(sel["lo"].mean()) if len(sel) else np.nan,
+                "bucket": b,
+                "n": len(sel),
+                "alpha_raw": raw,
+                "alpha_shrunk": 0.5 * raw if raw == raw else np.nan,
+                "alpha_iso": iso,
+                "conf_lo": float(sel["lo"].mean()) if len(sel) else np.nan,
                 "conf_hi": float(sel["hi"].mean()) if len(sel) else np.nan,
                 "coverage": float(sel["inside"].mean()) if len(sel) else np.nan,
             }
-        )  # fmt: skip
+        )
     return pd.DataFrame(rows)
 
 
@@ -290,11 +313,16 @@ def cpcv_summary(ics: pd.DataFrame, splits: Sequence[CPCVSplit], n_groups: int) 
     means = np.array([np.nanmean(v) for v in path_series])
     anchor_mean = ics.groupby("anchor")["ic"].mean()
     return {
-        "n_splits": len(splits), "n_paths": len(paths), "path_mean_ic": means.tolist(),
-        "mean_ic": float(np.nanmean(means)), "min_path": float(np.nanmin(means)), "max_path": float(np.nanmax(means)),
-        "share_paths_positive": float((means > 0).mean()), "anchor_mean_ic": {str(k.date()): float(v) for k, v in anchor_mean.items()},
+        "n_splits": len(splits),
+        "n_paths": len(paths),
+        "path_mean_ic": means.tolist(),
+        "mean_ic": float(np.nanmean(means)),
+        "min_path": float(np.nanmin(means)),
+        "max_path": float(np.nanmax(means)),
+        "share_paths_positive": float((means > 0).mean()),
+        "anchor_mean_ic": {str(k.date()): float(v) for k, v in anchor_mean.items()},
         "split_mean_ic": ics.groupby("split")["ic"].mean().tolist(),
-    }  # fmt: skip
+    }
 
 
 def _group_anchors(

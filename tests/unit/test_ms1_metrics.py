@@ -18,10 +18,21 @@ def oos_frame(n_anchors: int = 6, n: int = 400, rho: float = 0.2, seed: int = 0)
         label = rng.normal(size=n)
         score = rho * label + rng.normal(size=n)
         ret = 0.3 * label + rng.normal(scale=0.5, size=n)
-        rows.append(pd.DataFrame({"anchor": pd.Timestamp(2019 + k, 6, 28), "security_id": np.arange(n), "score": score,
-                                  "label": label, "ret_total": ret, "excess_univ_med": ret - np.median(ret),
-                                  "excess_n500_pr": ret - 0.05, "labelled": True,
-                                  "label_end": pd.Timestamp(2020 + k, 6, 28)}))  # fmt: skip
+        rows.append(
+            pd.DataFrame(
+                {
+                    "anchor": pd.Timestamp(2019 + k, 6, 28),
+                    "security_id": np.arange(n),
+                    "score": score,
+                    "label": label,
+                    "ret_total": ret,
+                    "excess_univ_med": ret - np.median(ret),
+                    "excess_n500_pr": ret - 0.05,
+                    "labelled": True,
+                    "label_end": pd.Timestamp(2020 + k, 6, 28),
+                }
+            )
+        )
     f = pd.concat(rows, ignore_index=True)
     f["p"] = percentile(f["score"], by=f["anchor"].to_numpy()).to_numpy()
     return f

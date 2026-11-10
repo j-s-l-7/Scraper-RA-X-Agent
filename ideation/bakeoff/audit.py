@@ -33,9 +33,12 @@ def verdict(auc: float) -> str:
 
 
 def fold_adversarial(
-    x: pd.DataFrame, meta: pd.DataFrame, train_anchors: list[pd.Timestamp], test_anchor: pd.Timestamp,
+    x: pd.DataFrame,
+    meta: pd.DataFrame,
+    train_anchors: list[pd.Timestamp],
+    test_anchor: pd.Timestamp,
     broadcast: list[str],
-) -> dict[str, Any]:  # fmt: skip
+) -> dict[str, Any]:
     """AUC on the cross-sectional value columns (blocking), with flags (informational) and with the broadcast
     regime columns (informational; anchor-constant columns separate train from test by construction)."""
     tr = meta["anchor"].isin(train_anchors).to_numpy() & meta["labelled"].to_numpy()

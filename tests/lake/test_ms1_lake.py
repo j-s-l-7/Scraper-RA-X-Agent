@@ -5,8 +5,8 @@ snapshot whose rows with ``available_from`` after the test anchor are poisoned (
 the feature-complete hook), fundamental features, technical + regime features, R1, then fit and score. The score vector
 of each model must be bit-identical to the clean rebuild. The training labels come from the stored label table (every
 label used has ``label_end`` <= the test anchor, so it is legitimately known at T). Models: RF_GLOBAL, RF_GLOBAL_EXT
-(technical + broadcast regime columns), RIDGE_GLOBAL and the baseline P1_COMP_EW. A positive control poisons the past and
-must move the scores.
+(technical + broadcast regime columns), RIDGE_GLOBAL and the baseline P1_COMP_EW. A positive control poisons the
+past and must move the scores.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ import pytest
 from ideation.bakeoff import run as R
 from ideation.bakeoff.data import FAMILY_MONTH, LABEL_COLS, Panel
 from ideation.config import REPO_ROOT, load_methodology
-from ideation.features import build as fbuild
 from ideation.features import tech_build
 from ideation.features.fundamental import build_fundamental
 from ideation.features.registry import load_registry
@@ -57,7 +56,9 @@ def rebuild_frame(store: PitStore, labels: pd.DataFrame) -> pd.DataFrame:
         feats = build_fundamental(view, mem[mem["traded_ok"] & mem["company_id"].notna()], REG)
         fc = feats.set_index("security_id")["feature_complete"]
         mem, _ = build_universe(view, UCFG, feature_complete=fc)
-        mem = mem[mem["in_u_score"]][["security_id", "in_u_score", "in_u_score_adv05", "in_u1000", "adv63_lakh", "mcap_pit_cr"]]
+        mem = mem[mem["in_u_score"]][
+            ["security_id", "in_u_score", "in_u_score_adv05", "in_u1000", "adv63_lakh", "mcap_pit_cr"]
+        ]
         tech = tech_build.build_anchor(store, REG, UCFG, a, rebuild_universe=True).features
         tcols = [n for n in REG.names(sets=["tech", "regime"]) if n in tech.columns]
         df = mem.merge(feats, on="security_id", how="left", validate="1:1")
@@ -80,22 +81,20 @@ def mini_panel(frame: pd.DataFrame, snap_id: str) -> Panel:
     return Panel("june", snap_id, frame, [*TRAIN, TEST], ends)
 
 
-def scores(frame: pd.DataFrame, snap_id: str, tmp_path, tag: str) -> dict[str, np.ndarray]:  # noqa: ANN001
+def scores(frame: pd.DataFrame, snap_id: str, tmp_path, tag: str) -> dict[str, np.ndarray]:
     specs = {s.trial_id: s for s in load_family("1Y-june")}
     panel = mini_panel(frame, snap_id)
     cache: dict = {}
     out = {}
     for m in MODELS:
         ctx = R.make_context(specs[m], panel, REG, tmp_path / tag, cache)
-        sc, _ = R._fit_predict(
-            ctx, [pd.Timestamp(a) for a in TRAIN], [pd.Timestamp(TEST)], importance=False
-        )
+        sc, _ = R._fit_predict(ctx, [pd.Timestamp(a) for a in TRAIN], [pd.Timestamp(TEST)], importance=False)
         out[m] = sc.sort_values("security_id")["score"].to_numpy()
     return out
 
 
 @pytest.fixture(scope="module")
-def clean(tstore: PitStore, tmp_path_factory: pytest.TempPathFactory):  # noqa: ANN201
+def clean(tstore: PitStore, tmp_path_factory: pytest.TempPathFactory):
     labels = load_labels(
         TRAIN, "1Y", "fit", family="1Y-june", source=tstore.outputs_dir / "labels.parquet"
     )  # TEST labels are not needed to score and are not read here
@@ -107,7 +106,7 @@ def clean(tstore: PitStore, tmp_path_factory: pytest.TempPathFactory):  # noqa: 
 
 
 @pytest.mark.parametrize("mode", ["inflate", "nan", "shuffle"])
-def test_t02_future_poison_scores(tstore: PitStore, clean, mode: str) -> None:  # noqa: ANN001
+def test_t02_future_poison_scores(tstore: PitStore, clean, mode: str) -> None:
     frame, labels, base, tmp = clean
     assert (tstore.table("financial_fact")["available_from"] > TEST).any()
     bad_store = tstore.poison_after(TEST, mode, seed=7)  # type: ignore[arg-type]
@@ -119,8 +118,8 @@ def test_t02_future_poison_scores(tstore: PitStore, clean, mode: str) -> None:  
         np.testing.assert_array_equal(base[m], bad[m], err_msg=m)  # bit-for-bit
 
 
-def test_t02_positive_control_poisoning_the_past_moves_scores(tstore: PitStore, clean) -> None:  # noqa: ANN001
-    frame, labels, base, tmp = clean
+def test_t02_positive_control_poisoning_the_past_moves_scores(tstore: PitStore, clean) -> None:
+    _frame, labels, base, tmp = clean
     old = tstore.poison_after(TEST - timedelta(days=900), "inflate", seed=7)
     moved = scores(rebuild_frame(old, labels), tstore.snap_id, tmp, "old")
     assert any(not np.array_equal(base[m], moved[m]) for m in MODELS)

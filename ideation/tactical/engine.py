@@ -33,6 +33,9 @@ BLOCK = 12
 IMP_REPEATS = 3
 IMP_MAX_ROWS = 2000
 IMP_CLUSTER_ROWS = 6000
+IMP_SKIP = ("svr",)
+"""SVR predicts through an explicit-loop RBF (bit-reproducible, ~2 min per 14k rows): its stability is not computed
+(NaN, z = 0 in the 90/10 score). Disclosed in STATUS."""
 
 
 def trial_dir(root: Path, kind: str, spec: TrialSpec) -> Path:
@@ -116,7 +119,7 @@ def _fit_predict(spec: TrialSpec, design: Design, train_anchors: Any, test_ancho
     info["predict_s"] = round(time.perf_counter() - t1, 1)
     base = getattr(model, "base", model)
     info["warnings"] = list(getattr(base, "warnings_", []))
-    if importance and spec.config.get("model") is None:
+    if importance and spec.config.get("model") is None and spec.config.get("learner") not in IMP_SKIP:
         t2 = time.perf_counter()
         try:
             info["importance"] = _importance(model, X.loc[tr], X.loc[te], meta.loc[te], y.loc[te], design)

@@ -101,7 +101,7 @@ def _importance(model: Learner, X_tr: pd.DataFrame, X_te: pd.DataFrame, meta_te:
 
 
 def _fit_predict(spec: TrialSpec, design: Design, train_anchors: Any, test_anchors: Any, *, importance: bool,
-                 seed_note: str = "") -> tuple[pd.DataFrame, dict[str, Any]]:  # fmt: skip
+                 check_purge: bool = True) -> tuple[pd.DataFrame, dict[str, Any]]:  # fmt: skip
     X, meta, y = design.X, design.meta, design.y
     tr = rows_in(meta, train_anchors) & y.notna().to_numpy()
     te = rows_in(meta, test_anchors)
@@ -109,7 +109,8 @@ def _fit_predict(spec: TrialSpec, design: Design, train_anchors: Any, test_ancho
                             "n_test": int(te.sum())}  # fmt: skip
     if not tr.any() or not te.any():
         return meta.loc[te, ["anchor", "security_id"]].assign(score=np.nan), {**info, "empty": True}
-    assert_purged(meta.loc[tr], pd.Timestamp(min(test_anchors)))
+    if check_purge:  # forward folds only; CPCV trains on later anchors by design (its splitter purges overlaps)
+        assert_purged(meta.loc[tr], pd.Timestamp(min(test_anchors)))
     t0 = time.perf_counter()
     model = build_model(spec, design)
     model.fit(X.loc[tr], y.loc[tr].to_numpy(dtype=float), meta.loc[tr])
@@ -180,7 +181,7 @@ def run_cpcv(spec: TrialSpec, design: Design, anchors: list[pd.Timestamp], label
             out[s.index] = pd.read_parquet(pq)
             continue
         t0 = time.perf_counter()
-        df, info = _fit_predict(spec, design, s.train_anchors, s.test_anchors, importance=False)
+        df, info = _fit_predict(spec, design, s.train_anchors, s.test_anchors, importance=False, check_purge=False)
         df.to_parquet(pq, index=False)
         js.write_text(json.dumps({**info, "test_groups": list(s.test_groups)}))
         out[s.index] = df

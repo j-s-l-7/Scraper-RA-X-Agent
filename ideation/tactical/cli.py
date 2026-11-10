@@ -174,11 +174,19 @@ def report_cmd(persist: Annotated[bool, typer.Option(help="write model/wf_result
     pa, summ = rp.trial_table(scores, raw)
     stab = {t: evalx.stability_of(i) for t, i in infos.items()}
     aucs: dict = {}
-    if audit:
+    auc_file = root / "adversarial_auc.json"
+    if audit and auc_file.exists():
+        aucs = json.loads(auc_file.read_text())
+    elif audit:
         for fset in ("T0", "T1"):
             d = build_design(panel.frame, panel.reg, fset)
             sp = next(s for s in specs if s.config.get("features", "T0") == fset and "learner" in s.config)
-            aucs[fset] = rp.adversarial_auc(d, wfo_folds(sp, panel.anchors, panel.label_end))
+            fl = wfo_folds(sp, panel.anchors, panel.label_end)
+            aucs[fset] = rp.adversarial_auc(d, fl)
+            aucs[fset + " (binary breakout/flag columns dropped; diagnostic)"] = rp.adversarial_auc(
+                d, fl, drop_binary=True
+            )
+        auc_file.write_text(json.dumps(aucs))
     auc_mean = float(np.mean([a["auc"] for a in aucs["T0"]])) if aucs else None
     dec = rp.decide(summ, pa, scores, stab, len(specs), auc_mean)
     md = ["# MS2 tactical report (generated, not committed)", ""]
@@ -214,12 +222,19 @@ def report_cmd(persist: Annotated[bool, typer.Option(help="write model/wf_result
                                                  for k, v in r.items()}})  # fmt: skip
     md += ["## Paired arms (per-anchor delta IC, common anchors, stationary bootstrap)",
            _md(pd.DataFrame(rows).set_index("arm")) if rows else "(none)", ""]  # fmt: skip
-    cs = rp.consensus_sets_eval({m: scores[m] for m in next(s.config["members"] for s in specs if "members" in s.config)
+    cs = evalx.consensus_sets_eval({m: scores[m] for m in next(s.config["members"] for s in specs if "members" in s.config)
                                  if m in scores}, raw) if "CONS_MAJ_T" in scores else None  # fmt: skip
     if cs is not None:
         md += ["## Consensus sets (3M, equal-weight excess vs universe median, mean over anchors)",
                _md(cs.mean(numeric_only=True).to_frame("mean")), ""]  # fmt: skip
     champ = dec["champion"]
+    yr = pd.DataFrame(
+        {
+            t: pa[t]["3M"]["ic"].groupby(pa[t]["3M"].index.year).mean()
+            for t in (champ, "T_EW_SIGNPRIOR", "RIDGE_T0", "RF_T0", "MOM_12_1", "LOWVOL")
+        }
+    )
+    md += ["## Mean 3M IC by calendar year", _md(yr), ""]
     md += [f"## R-A pooled (descriptive) for {champ}", _md(rp.ra_table(scores[champ], raw)), ""]
     if aucs:
         for k, v in aucs.items():
@@ -253,8 +268,8 @@ def _persist(settings, specs, scores, pa, summ, raw, dec, stab) -> None:  # type
             tid = int(conn.execute("select trial_id from ideation.experiment_trial where family=%s and config_hash=%s",
                                    (s.family, s.config_hash)).fetchone()[0])  # fmt: skip
             sel = {
-                "score_9010": float(dec["selection"].get(s.trial_id, float("nan"))),
-                "stability": stab.get(s.trial_id),
+                "score_9010": ps._f(dec["selection"].get(s.trial_id, float("nan"))),
+                "stability": ps._f(stab.get(s.trial_id)),
             }
             for h in ("3M", "1M"):
                 mid = ps.model_id(conn, s, h, sel)

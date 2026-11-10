@@ -77,10 +77,19 @@ def trial_table(
     return pa, pd.DataFrame(rows)
 
 
-def adversarial_auc(design: Design, folds: list, seed: int = 0, cap: int = 6000) -> list[dict[str, Any]]:
+BINARY_LIKE = ("brk_", "brkdn_", "rrg_quad", "isna_")
+
+
+def adversarial_auc(
+    design: Design, folds: list, seed: int = 0, cap: int = 6000, drop_binary: bool = False
+) -> list[dict[str, Any]]:
     """02 6.1: train-vs-test RF classifier AUC (200 trees, depth 6, 5-fold) on the R1 model inputs of each WFO fold.
     Broadcast (anchor-constant) columns are excluded: they separate periods by construction."""
     cols = [c for c in design.X.columns if c not in design.broadcast and c.replace("isna_", "") not in design.broadcast]
+    if (
+        drop_binary
+    ):  # diagnostic: rank-gauss of a 0/1 column is an anchor-dependent constant pair (a hidden regime proxy)
+        cols = [c for c in cols if not c.startswith(BINARY_LIKE)]
     out = []
     anchors = pd.to_datetime(design.meta["anchor"])
     for f in folds:

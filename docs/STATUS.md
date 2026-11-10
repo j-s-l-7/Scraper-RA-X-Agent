@@ -1150,3 +1150,62 @@ See the command table of this entry; ruff, `pytest -m "not lake"`, `pytest -m la
 | `uv run pytest -p no:xdist -m "not lake"` | **555 passed**, 1 skipped, 1 xfailed, 1 xpassed (E1's documented xfail/xpass) in 140 s (includes 4 new MS2 tests and the static-ban scan of `ideation/tactical`) |
 | `uv run pytest -p no:xdist -m lake` | **101 passed, 1 failed** in 413 s. The failure is `tests/lake/test_e1_ddl.py::test_register_then_train_guard`: it registers `1Y-june` inside a rolled-back transaction and asserts `n_family == 50`, but the live `experiment_trial` already holds MS1's 50 `1Y-june` rows (and this test's hashes are new inserts), so it sees 100. It is an interaction with the concurrent MS1 registration in the shared real schema, not with MS2 code (MS2 touched nothing in `trials/`). It needs the test to count only its own rows (or run before MS1 registers). |
 | `uv run python scripts/secret_scan.py --all` | clean |
+
+## MS2 diagnostics (branch `phase-ms2-diagnostics`, diagnostics not trials; N unchanged, selection untouched)
+
+Date 2026-11-11. Code `ideation/tactical/diagnostics.py`, CLI `ideation tactical diagnostics` (about 4 min, 4 threads, `nice -n 10`),
+tests `tests/unit/test_tactical_diagnostics.py` (planted beta-only signal is killed by neutralisation, planted alpha survives).
+Full output: `~/Ideation-data/tactical_ms2/DIAGNOSTICS.md` (+ `diagnostics_key.json`, not in git). Uses the stored OOS scores of the
+counted OOS 2014-01..2025-06 (138 anchors); nothing refit, no DB write. The five headline means reproduce exactly
+(ENS 0.1258, SCR 0.1209, RIDGE 0.1195, T_EW 0.1002, MOM 0.0716).
+
+**Method.** Controls are PIT/trailing at each anchor: `beta_252` (daily OLS beta to the Nifty 500, 252 sessions, `features.technical`),
+`rvol_63`, `idio_vol`, ln mcap, ln ADV63. Residual IC = rank IC of the score against the 1/99-winsorised 3M return residualised per
+anchor on B (beta), BV (beta+rvol+idio_vol), BVLS (BV+size+ADV). Within-tercile IC = mean of the three within-tercile ICs. Entry lag:
+`labels.build.compute_labels` in memory (nothing written) with `entry_session` = 2nd / 5th good session after the anchor and the
+unchanged `label_end` (03 C3; the first trade on or after the entry session, as in the stored labels); the s1 recompute reproduces the
+stored labels (162,645 rows, max abs diff 4e-13). Caveats: beta_252, rvol_63, idio_vol are T0 inputs of the models (neutralising removes
+the part of the model that is by design a low-risk tilt, which is a risk premium rather than a bug); daily beta of illiquid names is
+biased down, so beta partly proxies illiquidity; per-year NW t with 12 overlapping points is only indicative.
+
+| mean 3M IC (NW t) | raw | res B | res BV | res BVLS | within-beta terc. | within-vol terc. |
+|---|---|---|---|---|---|---|
+| ENS_RANKAVG_T | 0.1258 (6.4) | 0.1169 (7.6) | 0.1074 (10.8) | 0.1139 (12.9) | 0.1170 (7.3) | 0.1026 (6.7) |
+| SCR_T0 | 0.1209 (5.2) | 0.1116 | 0.1002 | 0.1046 | 0.1096 | 0.0961 |
+| RIDGE_T0 | 0.1195 (5.9) | 0.1099 | 0.0955 | 0.1020 | 0.1093 | 0.0956 |
+| T_EW_SIGNPRIOR | 0.1002 (5.4) | 0.0936 | 0.0935 | 0.0990 | 0.0915 | 0.0851 |
+| MOM_12_1 | 0.0716 (4.3) | 0.0750 | 0.0757 | 0.0804 | 0.0764 | 0.0815 |
+
+The NW t rises after residualising because the common market-driven swings of the IC series are removed; the mean falls only 7-18%.
+ENS per year (raw -> BVLS): 2014 .142 -> .162, 2015 .122 -> .099, 2016 .115 -> .114, 2017 .199 -> .184, **2018 .205 -> .131, 2019 .233 -> .067**,
+2020 -.030 -> .051, 2021 .018 -> .133, 2022 .184 -> .128, 2023 .088 -> .118, 2024 .145 -> .105, 2025 .053 -> .038. The 2018-19 peak is mostly a
+beta/vol effect (2019 loses 71%); the 2020-21 "failure" is also beta/vol (residual IC is positive: .051 and .133). Exposure: mean corr(score, beta)
+-0.29, corr(score, rvol_63) -0.46, corr(score, ln mcap) +0.23, corr(score, ln ADV) +0.03; mean beta(Q5) - beta(Q1) = -0.35. Per-anchor raw IC
+correlates -0.67 with the universe equal-weight 3M return (raw IC 0.211 when it is negative (51 anchors) vs 0.076 when positive (87)); the
+BVLS-residual IC correlates -0.21 and is regime-flat (0.118 vs 0.111).
+
+Entry lag (mean IC, ENS): s1 0.1258, s2 (1 session later) 0.1272, s5 (4 sessions later) 0.1292; SCR 0.1209 / 0.1244 / 0.1294; RIDGE 0.1195 /
+0.1215 / 0.1236; T_EW 0.1002 / 0.1035 / 0.1071; MOM 0.0716 / 0.0720 / 0.0724 (NW t of ENS 6.4 / 6.5 / 6.8). BVLS residual IC at s5: ENS 0.1129
+(vs 0.1139 at s1). The IC against the s1-to-s5 return alone is small and positive (ENS 0.034), so there is no bid-ask-bounce signature.
+
+Buckets (ENS): ADV tercile low / mid / high 0.158 / 0.136 / 0.101 (high-minus-low -0.057, t -3.9); mcap tercile 0.142 / 0.095 / 0.068; against the
+BV-residual return the ADV terciles are 0.134 / 0.117 / 0.083. So the signal is strongest in small illiquid names but still 0.08 (BV residual) in the most
+liquid third. Standalone T0 feature IC (raw): dist_52wh +0.103 (t 5.1), dvol_63 -0.100 (4.5), rvol_63 -0.092 (4.4), ma50_200 +0.071, mom_12_1 +0.072,
+rs_n500_6m = mom_6m (identical columns) +0.063, max_21 -0.059, idio_vol -0.085, ma200_gap +0.067, beta_252 alone -0.047 (t -2.3); breakout flags, volume, RRG
+and liquidity features are near zero. The 2018-19 IC of the low-vol features is -0.25 to -0.27 (i.e. strong low-vol payoff) and about 0 in 2020-21.
+
+**Verdict.** The beta/vol-bet hypothesis explains the timing of the IC, not its level. About 85-93% of the 0.126 survives beta or beta+vol
+neutralisation (0.117 / 0.107, 0.114 with size and liquidity) and about 82-93% survives the within-tercile tests; the 2018-19 spike (0.21-0.23) shrinks
+to 0.07-0.13 and the poor 2020-21 turns positive, which makes the neutral alpha roughly 0.11 and regime-independent. A 1-4 session entry delay does
+not reduce the IC at all (0.126 -> 0.127 -> 0.129; residual 0.114 -> 0.113), so reversal or bid-ask bounce in illiquid names is not what drives it, although the
+effect is concentrated in small, less liquid names (IC 0.158 low ADV vs 0.101 high ADV), which limits capacity. The effect is not an artefact of the 0.126 headline,
+but the headline overstates it: roughly 0.11 is the figure to carry forward and the part above that is a defensive low-vol / low-beta tilt that pays in drawdowns.
+Portfolio implication: the score is correlated -0.3 with beta and -0.45 with vol, so a Black-Litterman view built on the raw score would double-count the low-beta
+tilt already priced through the covariance/market leg and would be an unhedged short-beta bet; express the views on the BVLS-residual alpha (or optimise with a beta
+and vol neutrality constraint) and expect lower payoff in rising markets. This is a diagnostic only: it changes neither N nor the MS2 decision.
+
+### Pre-registration deviations (recorded, not corrected)
+(a) Trials #19-20 (RF_T1_VSURP, RIDGE_T1_VSURP): their covered subset (`isna_vsurp == 0`) was injected by the driver from the gate key (`vsurp_validity`) and is not in the
+hashed config, so the registered hash does not describe the data the trial was fit on.
+(b) The champion ENS_RANKAVG_T has no CPCV: CPCV covers only SCR_T0, OLS_T0, RIDGE_T0 and the T_EW baseline (the ensemble would need CPCV of all 10 members including RF, MLP and SVR,
+far beyond the 2.5 h budget); its evidence is the 138-anchor walk-forward only.

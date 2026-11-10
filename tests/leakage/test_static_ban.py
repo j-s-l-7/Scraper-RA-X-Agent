@@ -21,16 +21,16 @@ from ideation.config import REPO_ROOT
 from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
-BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank")
+BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime")
 BAN_ALLOWLIST: frozenset[str] = frozenset({"ideation/features/events_vendor.py"})  # 05 O5: the single entry
-IMPORT_RESTRICTED = ("features", "models", "universe")
+IMPORT_RESTRICTED = ("features", "models", "universe", "regime")
 FORBIDDEN_IMPORTS = ("ideation.lake", "ideation.labels", "psycopg", "psycopg2")
 IMPORT_EXCEPTIONS = {("ideation/models/train.py", "ideation.labels")}
 LAKE_FREE = ("cv", "eval", "models", "rank", "trials")
 LAKE_IMPORTS = ("ideation.lake", "psycopg", "psycopg2")
-OUTCOME_FREE = ("features", "models", "universe", "rank", "cv")
+OUTCOME_FREE = ("features", "models", "universe", "rank", "cv", "regime")
 OUTCOME_IMPORTS = ("ideation.outcomes",)
-CLOCK_SCANNED = ("features", "labels", "universe")
+CLOCK_SCANNED = ("features", "labels", "universe", "regime")
 CLOCK_ATTRS = {("date", "today"), ("datetime", "now"), ("datetime", "utcnow"), ("datetime", "today"), ("time", "time"),
                ("Timestamp", "now"), ("Timestamp", "today")}  # fmt: skip
 
@@ -93,7 +93,7 @@ def clock_reads(path: Path) -> list[str]:
 
 # ── the real scans ───────────────────────────────────────────────────────────────────────────────────────────
 def test_scanned_packages_exist() -> None:
-    for d in ("features", "labels", "universe", "models", "cv", "eval", "rank", "trials"):
+    for d in ("features", "labels", "universe", "models", "cv", "eval", "rank", "trials", "regime"):
         assert (PKG / d / "__init__.py").is_file(), d
 
 

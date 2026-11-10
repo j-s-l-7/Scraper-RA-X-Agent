@@ -1,0 +1,68 @@
+# Technical, ownership, regime feature map (05 §6, 01 §2.5/2.6/3.6). Owner: P3. Same keys as features_fundamental.yaml, plus:
+#   trainable_from  first anchor at which the builder emits a value (earlier anchors are masked to NaN, 01 P3 #4).
+# Sets (tactical): tech = T0 price/volume columns; t1 = short-history columns (delivery, FPI sector flow, ownership,
+# events); regime = broadcast regime and macro columns. T0 = tech, T0_regime = tech + regime, T1 = tech + t1.
+# No column is in the P2 sets (core/ext/shown), so the 1Y core matrix never picks a P3 column by accident.
+version: 1
+
+features:
+  # -- T0 price / volume (set: tech) --
+  mom_1m: {family: mom_short, prior: -1, kind: cross_sectional, category: momentum, set: tech, trainable_from: 2010-07-01}
+  mom_3m: {family: mom, prior: 1, kind: cross_sectional, category: momentum, set: tech, trainable_from: 2010-07-01}
+  mom_6m: {family: mom, prior: 1, kind: cross_sectional, category: momentum, set: tech, trainable_from: 2010-07-01}
+  mom_12_1: {family: mom, prior: 1, kind: cross_sectional, category: momentum, set: tech, trainable_from: 2011-02-01}
+  rev_5d: {family: mom_short, prior: -1, kind: cross_sectional, category: reversal, set: tech, trainable_from: 2010-02-01}
+  rs_grp_3m: {family: rs_grp, prior: 1, kind: cross_sectional, category: relative_strength, set: tech, trainable_from: 2010-07-01}
+  rs_grp_6m: {family: rs_grp, prior: 1, kind: cross_sectional, category: relative_strength, set: tech, trainable_from: 2010-07-01}
+  rs_n500_3m: {family: rs_n500, prior: 1, kind: cross_sectional, category: relative_strength, set: tech, trainable_from: 2010-07-01}
+  rs_n500_6m: {family: rs_n500, prior: 1, kind: cross_sectional, category: relative_strength, set: tech, trainable_from: 2010-07-01}
+  dist_52wh: {family: dist52, prior: 1, kind: cross_sectional, category: trend, set: tech, trainable_from: 2011-01-01}
+  dist_52wl: {family: dist52, prior: null, kind: cross_sectional, category: trend, set: tech, trainable_from: 2011-01-01}
+  brk_1y: {family: brk, prior: 1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2011-01-01}
+  brk_2y: {family: brk, prior: 1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2012-01-01}
+  brk_3_4y: {family: brk, prior: 1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2014-01-01}
+  brkdn_1y: {family: brkdn, prior: -1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2011-01-01}
+  brkdn_2y: {family: brkdn, prior: -1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2012-01-01}
+  brkdn_3_4y: {family: brkdn, prior: -1, kind: cross_sectional, category: breakout, set: tech, trainable_from: 2014-01-01}
+  vol_ratio: {family: volume, prior: null, kind: cross_sectional, category: volume, set: tech, trainable_from: 2010-07-01}
+  ma200_gap: {family: ma, prior: 1, kind: cross_sectional, category: trend, set: tech, trainable_from: 2010-11-01}
+  ma50_200: {family: ma, prior: 1, kind: cross_sectional, category: trend, set: tech, trainable_from: 2010-11-01}
+  rvol_63: {family: vol, prior: -1, kind: cross_sectional, category: risk, set: tech, trainable_from: 2010-04-01}
+  dvol_63: {family: vol, prior: -1, kind: cross_sectional, category: risk, set: tech, trainable_from: 2010-04-01}
+  beta_252: {family: beta, prior: null, kind: cross_sectional, category: risk, set: tech, trainable_from: 2011-01-01}
+  idio_vol: {family: vol, prior: -1, kind: cross_sectional, category: risk, set: tech, trainable_from: 2011-01-01}
+  liq_rank: {family: liq, prior: null, kind: cross_sectional, category: liquidity, set: tech, trainable_from: 2010-07-01}
+  max_21: {family: lottery, prior: -1, kind: cross_sectional, category: risk, set: tech, trainable_from: 2010-02-01}
+  skew_126: {family: lottery, prior: -1, kind: cross_sectional, category: risk, set: tech, trainable_from: 2010-07-01}
+  id_frog: {family: id_frog, prior: -1, kind: cross_sectional, category: momentum, set: tech, trainable_from: 2011-01-01}
+  amihud_63: {family: liq, prior: null, kind: cross_sectional, category: liquidity, set: tech, trainable_from: 2010-04-01}
+  updown_vol_63: {family: volume, prior: 1, kind: cross_sectional, category: volume, set: tech, trainable_from: 2010-04-01}
+  rrg_ratio_grp: {family: rrg, prior: 1, kind: cross_sectional, category: rotation, set: tech, trainable_from: 2011-09-01}
+  rrg_mom_grp: {family: rrg, prior: 1, kind: cross_sectional, category: rotation, set: tech, trainable_from: 2011-09-01}
+  rrg_quad_grp: {family: rrg_q, prior: null, kind: cross_sectional, category: rotation, set: tech, trainable_from: 2011-09-01}
+  # -- T1: delivery, ownership (yearly changes only, 03 B1), FPI sector flow (set: t1) --
+  deliv_chg: {family: deliv, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2020-04-01}
+  deliv_lvl_63: {family: deliv, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2020-01-01}
+  prom_chg_1y: {family: own_prom, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2018-06-01}
+  fii_chg_1y: {family: own_fii, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2018-06-01}
+  dii_chg_1y: {family: own_dii, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2018-06-01}
+  holders_chg_1y: {family: own_holders, prior: -1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2018-06-01}
+  fpi_sector_flow_3m: {family: fpi, prior: 1, kind: cross_sectional, category: flow, set: t1, trainable_from: 2020-08-01}
+  # -- regime / macro broadcast columns (kind: broadcast; R1 passes them through, BroadcastScaler standardises) --
+  regime_pct_above_200dma: {family: regime_breadth, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_pct_above_50dma: {family: regime_breadth, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_ad_ratio_20d: {family: regime_breadth, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_nh_nl_20d: {family: regime_breadth, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_div_6m: {family: regime_divergence, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_pct_beating_6m: {family: regime_divergence, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_vix: {family: regime_vol, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_vix_pct_3y: {family: regime_vol, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_vix_chg_1m: {family: regime_vol, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_n500_ma200_gap: {family: regime_trend, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_n500_ma200_slope_63d: {family: regime_trend, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_n500_dd_252: {family: regime_trend, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_cpi_yoy: {family: regime_macro, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_iip_yoy: {family: regime_macro, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_usdinr_3m: {family: regime_macro, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_wti_3m: {family: regime_macro, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}
+  regime_us10y_3m_bp: {family: regime_macro, prior: null, kind: broadcast, category: regime, set: regime, trainable_from: 2011-01-01}

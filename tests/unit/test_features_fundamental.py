@@ -248,7 +248,7 @@ def test_registry_loads_and_exposes_model_keys() -> None:
     assert pri["nd_ebitda"] == -1
     assert REG.families()["roe_3y"] == REG.families()["roe"]
     assert REG.growth_cols() >= {"rev_g1", "eps_g1", "eps_g3", "rev_g3"}
-    assert REG.broadcast_cols() == frozenset()
+    assert not {n for n in REG.broadcast_cols() if REG.features[n].source == "features_fundamental.yaml"}
     assert "size" not in REG.names(sets=["core"])
     assert "eps_g5" not in REG.names(sets=["core", "ext"])
 

@@ -1690,3 +1690,70 @@ future-poison in three modes with positive controls).
 - Vendor estimates cannot be shown to be point-in-time; coverage is survivors-only and size-biased (see PT2).
 - Fundamental outcomes use the FY basis decided on the late view (hindsight on C/S choice); outcome-only.
 - Quarterly outcomes are thin before 2025; treat `fundamental_q` as report-only.
+
+
+## MS1-text: 1Y text trials #44-45 (branch `phase-ms3-research-report`, worktree `../wt-ms3`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`. No migration. `ideation init-db` never run from the worktree. N = 50 unchanged.
+
+### What was run
+- `nice -n 5 uv run ideation train --horizon 1y --bakeoff --cpcv --text`: 215 s wall (WFO 2019 indicative + 2020-2024 counted, 36-split CPCV, for RF_GLOBAL_TEXT, RIDGE_GLOBAL_TEXT and their two control arms).
+- `nice -n 5 uv run ideation backtest text`: 8 s (paired statistics, persistence of the two trials, report `~/Ideation-data/reports/ms1/MS1_text_<snap>.{md,json}`).
+- Code: `bakeoff/data.py` (`attach_text`: raw text columns + `isna_text*` flags, `text_available_from <= anchor` check, June 2016-2024 only; `build_matrix` cuts `isna_text == 0` BEFORE R1, so rank-gauss, target and percentile live inside covered names), `bakeoff/run.py` (matrix cache key now includes `subset`), `bakeoff/driver.py` (text trials run only when named / with `--text`; `control_spec`), `bakeoff/text.py`, CLI flag `--text` and `backtest text`.
+- Control arm = same learner on the core columns, same covered rows, folds and windows: a protocol arm (own config hash for checkpoints, NOT registered, NOT in N, never in `oos_prediction`). An assertion checks equal rows and fold sizes (catches a shared-cache or shared-checkpoint bug). Secondary comparison: the full-universe RF_GLOBAL / RIDGE_GLOBAL restricted to the same names.
+- Persisted (live ledger): `experiment_trial` #44-45 -> `ok` (ic_series, spread_series, n_oos), `model` (candidate), `wf_result`, `oos_prediction`, `rank_calibration` for the two text trials only. The full-family `finalize` was NOT rerun: selection, PBO and the DSR variance pool of the other 48 trials are untouched (DSR of text trials n/a; they are not selectable).
+
+### Result (paired over the 5 counted anchors 2020-2024, iid bootstrap over anchors, 10,000 draws)
+| trial | vs | IC text | IC other | delta | CI90 | P(d>0) | years better |
+|---|---|---|---|---|---|---|---|
+| RF_GLOBAL_TEXT | matched control (core cols, same names) | 0.021 | -0.005 | +0.026 | [+0.012, +0.045] | 1.00 | 5/5 |
+| RF_GLOBAL_TEXT | full-universe RF_GLOBAL on the same names | 0.021 | 0.001 | +0.020 | [-0.008, +0.046] | 0.88 | 4/5 |
+| RIDGE_GLOBAL_TEXT | matched control | 0.003 | -0.031 | +0.034 | [+0.011, +0.057] | 0.99 | 4/5 |
+| RIDGE_GLOBAL_TEXT | full-universe RIDGE_GLOBAL on the same names | 0.003 | 0.009 | -0.006 | [-0.021, +0.008] | 0.26 | 2/5 |
+
+Plain reading: text beats the matched control, but that control is trained on only 426-1,554 covered rows and has negative IC. Against a model trained on the full universe
+(many times more rows) text adds nothing distinguishable from zero. MS2 found text slightly negative at 3M. Overall: no evidence that text adds value; the 1Y evidence is indicative
+(covered share of U_score 13% in 2016 to 52% in 2024; 5 counted anchors; P(delta>0) from 5 points is weak).
+
+### Deviations / risks
+- The covered subset is survivor-only and size-biased (larger caps first); the first training folds hold 426 and 550 rows.
+- Control arms are not trials; the pairing statistic is exploratory.
+
+## MS3: research report (branch `phase-ms3-research-report`)
+
+Date 2026-11-11. No migration (030-039 unused). `init-db` never run. Not merged. The holdout was NOT unsealed (`holdout_unseal` has 0 rows) and `ideation holdout unseal` was NOT run.
+
+### Commands and runtimes
+| command | result | wall |
+|---|---|---|
+| `nice -n 5 uv run ideation report research --family 1Y-june --family tactical-3M` | `~/Ideation-data/reports/2026-11-11/RESEARCH_OOS.md` + `RANKING_MECHANISM.md` (copied to gitignored `docs/RANKING_MECHANISM.md`) | **332 s** (limit 900 s); 1Y alone 26 s |
+Read-only over stored results: nothing refitted, no trial added. Labels only via `load_labels(unsealed_only(...), 'report')`; the report layer raises if a sealed anchor reaches it.
+
+### What was built
+`ideation/eval/consensus.py` (sets C_maj / C_unan / B_maj, size-matched best single model fixed a priori by mean IC, rank-average, random-|C| draws, paired bootstrap with iid (1Y) or stationary-block (3M) CIs, agreement: Spearman / Kendall W / Jaccard),
+`ideation/report/{store,portfolio,research,holdout,cli}.py`, `docs/RANKING_MECHANISM.template.md` (Jinja2, no literal numbers; test strips `{{ }}`/`{% %}` and allows digits only in heading numbers), `config/themes.yaml`, `config/costs.yaml` (03 D2 defaults, TO VERIFY with the broker).
+Outcome wiring: `compare_sets` (10,000 anchor-clustered bootstrap draws, size-tercile split) and `cmh_accel` (D10 vs D1, 1Y) are applied to `oos_prediction` x `ideation.outcome` for the shipped model, the 90/10 champion and ENS_RANKAVG, with P95, D10, D1, C_maj, C_unan sets.
+The report refuses to render (`ReportRefused`, tested) without the bias block per family, N (50 and 25 checked against the ledger), the sealed/unsealed status, and an estimate-with-CI behind every headline statistic.
+Commands for the unseal (NOT run; irreversible; awaiting explicit owner confirmation, and the owner chooses the frozen champion):
+`uv run ideation holdout status` ; `uv run ideation holdout unseal --family 1Y-june --champion <trial_id> --baseline <trial_id of P1_COMP_EW> --yes` ; `uv run ideation holdout unseal --family tactical-3M --champion <trial_id> --baseline <trial_id of T_EW_SIGNPRIOR> --yes` ;
+then `uv run ideation report research --holdout` (currently refuses while sealed; the holdout rendering itself is a separate step after unsealing, reported once and never fed back).
+
+### Headline answers (numbers in the report; CIs there)
+See the final report to the orchestrator and `RESEARCH_OOS.md`: 1Y baseline P1_COMP_EW ships (P1_UNIFIED_XS best 90/10 but DSR 0.81 < 0.90, AUC 0.72); RF IC 0.003 does not reproduce the dossier; learners add nothing; only valuation shows signal;
+tactical baseline ships by the frozen rule because ENS_RANKAVG_T fails the adversarial gate (AUC 0.945), and the baseline fails the same gate (decision left to the owner).
+
+### Deviations and risks
+- Both disclosures of the plan are recorded in the report: trials #19-20 subset injected by the driver; tactical champion has no CPCV; P1 printed Jun-2025 sealed statistics before the loader existed; MS2 orientation read `labels.parquet` aggregates.
+- The 02 6.1 adversarial remedy is NOT applied (owner decision).
+- Portfolio rows chain 1M labels (fractional shares, flat return for names without a 1M label); BL rows come from P7. MTM drawdown is from those monthly series.
+- Themes and sectors use Nov-2026 labels with hindsight; simplified conviction (no notches) in the theme lists.
+- The "best single model" for the consensus comparison is a hindsight pick on the same anchors (conservative for the consensus).
+
+### Acceptance (MS1-text + MS3)
+| check | result |
+|---|---|
+| `uv run ruff check .` | All checks passed |
+| `uv run pytest -p no:xdist -m "not lake"` | 591 passed, 1 xfailed, 1 xpassed (129 s); includes `tests/unit/test_ms3_report.py` (template has no literal numbers, bias-block / N / CI / holdout refusal, consensus planted-signal recovery, capped cap-weights and costs, control-arm hash, unseal guards) |
+| `uv run pytest -p no:xdist -m lake` | 115 passed (569 s); includes `tests/lake/test_ms3_lake.py` (holdout still sealed, `--holdout` refuses, report label reader refuses a sealed anchor) |
+| `uv run python scripts/secret_scan.py --all` | clean |
+| report runtime | 332 s (<= 900 s) |

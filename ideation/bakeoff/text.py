@@ -131,7 +131,7 @@ def render(res: dict[str, dict[str, Any]], cov: pd.DataFrame, snap_id: str, fami
         "",
         RP.md(cov.assign(**{"share cur": cov["share cur"].map(lambda x: f"{100 * x:.1f}%"),
                             "share cur+prev": cov["share cur+prev"].map(lambda x: f"{100 * x:.1f}%"),
-                            "anchor": cov["anchor"].map(lambda a: str(a))})),  # fmt: skip
+                            "anchor": cov["anchor"].map(str)})),
         "",
     ]
     rows = []

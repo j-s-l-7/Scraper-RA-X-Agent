@@ -1209,3 +1209,428 @@ and vol neutrality constraint) and expect lower payoff in rising markets. This i
 hashed config, so the registered hash does not describe the data the trial was fit on.
 (b) The champion ENS_RANKAVG_T has no CPCV: CPCV covers only SCR_T0, OLS_T0, RIDGE_T0 and the T_EW baseline (the ensemble would need CPCV of all 10 members including RF, MLP and SVR,
 far beyond the 2.5 h budget); its evidence is the 138-anchor walk-forward only.
+
+
+## MS1-core: 1Y bake-off (branch `phase-ms1-1y-bakeoff`, worktree `../wt-ms1`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986` (features/universe/labels as built by P2/P3 on `main`). No migration
+(030-039 unused: `oos_prediction`, `rank_calibration`, `model`, `wf_result` already exist). `ideation init-db` was never run
+from the worktree. Not merged. Trials #44-45 (text) were NOT run and stay `registered` (MS1-text).
+
+### Headline (read this first)
+- **No model is promoted. The composite baseline ships (P1_COMP_EW), and it is itself weak.** The 90/10 pick is
+  **P1_UNIFIED_XS** (a Phase-I valuation composite, not a learner): mean OOS rank IC **0.121** (CI90 0.070 .. 0.180, positive in
+  5/5 counted years, 2020-2024). It passes gates 1, 2 and 3 but fails **gate 4** (DSR 0.813 < 0.90 at N = 50; PBO 0.139 passes)
+  and **gate 5** (adversarial AUC on the model inputs 0.72 > 0.70 in 4 of 5 counted folds). So even the best trial does not clear
+  the pre-registered bar, and the rule says the baseline ships. The baseline P1_COMP_EW has mean IC 0.029 (CI90 0.007 .. 0.056,
+  4/5 positive) and fails gate 1 itself (0.029 < 0.03).
+- **The learners add nothing.** All 7 learners x 3 specs, OLS, SCR and every RF variant have mean IC between -0.021 and +0.014
+  (the three `_MOM` variants 0.026-0.029 and RF_GLOBAL_TRAIN2Y 0.008; CI90 straddles 0 in every case, 2-4 of 5 positive years). RF_GLOBAL 0.003 [-0.075, 0.074]; RF_GLOBAL_EXT -0.002; the 90/10-by-security
+  variants 0.003 / -0.001; ENS_RANKAVG 0.005; CONS_MAJ -0.004. **RF fails** gates 1, 3 (dIC -0.026 vs the baseline, P(dIC>0) = 0.29),
+  4 and 5. The dossier's RF values (0.223 / 0.233 / 0.25) are not reproduced and were not a target (different data, N, years).
+- **The signal that exists is valuation.** The bench-1Y equal-weight VALUE_ONLY composite (ep, sp, ebitda_ev, fcf_yield, bp) has IC 0.129 in
+  5/5 years, the three-yield P1_UNIFIED(_XS) 0.110 / 0.121, P1_FINAL_WFO (scr on the same three yields) 0.079. Learners trained on
+  3 anchors lose the 2020 rebound (IC -0.15 to -0.18 for RF/LGBM/XGB/MLP/SVR/OLS/Ridge in Jun-2020, trained on 2017-2019) and are
+  near 0 elsewhere except Jun-2023 (+0.10 to +0.15). The mean over 5 tests is dominated by that one year.
+- Honest caveat: P1_UNIFIED(_XS) were selected among 50 pre-registered trials on the same 5 test years; the DSR (0.81) already
+  deflates for that and it does not clear 0.90. Treat 0.121 as an upper bound, not an expectation.
+- CPCV (36 splits, 8 paths, anchors 2016-2024, trains on both sides of the test group) tells a milder version: P1_UNIFIED_XS 0.069,
+  P1_COMP_EW 0.060, RF_GLOBAL 0.022, **RF_GLOBAL_MOM 0.091, RIDGE_GLOBAL_MOM 0.095, RF_GLOBAL_EXT 0.051** (momentum/regime help
+  once the training set is larger than 3 anchors; in WFO they do not: 0.029 / 0.026 / -0.002). CPCV is a robustness view and not
+  the gate series.
+
+### What was built
+- `ideation/bakeoff/` (no lake or psycopg import except `persist.py` through the guarded writer):
+  `data.py` (panel = U_score members x fundamental + technical + regime columns + labels read **only through `load_labels`**;
+  `build_matrix` = R1 on the trial's whole universe at each anchor, then target = rank-gauss of `ret_total` within the trial
+  universe), `models.py` (trial config -> model; scr gets priors, rf/ridge/etc. get the `BroadcastScaler` when the feature set has
+  broadcast columns, 90/10-by-security gets the core columns only), `run.py` (WFO folds via `cv.walkforward.annual_folds`, CPCV via
+  `cv.cpcv.cpcv_splits`, row-level C3 / span-overlap guards, clustered permutation importance per fold, **per-(trial, fold)
+  parquet+json checkpoints** under `IDEATION_DATA_DIR/bakeoff/<snap>/<hash12>/`, resumable), `driver.py` (the loop; consensus
+  trials from the members' fold/split scores; window variants copy their base's CPCV), `metrics.py` (R-A..R-C, name-bootstrap IC CI
+  with 10,000 resamples, nested/pooled calibration + conformal, CPCV path/PBO inputs, consensus scores), `report.py` (DSR, paired
+  dIC, 90/10 selection, gates, tables), `audit.py` (adversarial AUC, isolation-forest share), `finalize.py` (report + benchmarks),
+  `persist.py` (DB), `cli.py`.
+- CLI: `ideation train --horizon 1y --bakeoff --cpcv [--trials a,b] [--no-report]` (refuses an unregistered config hash) and
+  `ideation backtest report [--no-persist] [--leakage-green]` (recomputes everything from stored results, no refit).
+- `config/trials_1y.yaml` (owner MS1): the **hashed defaults now spell out** `feature_sets` (core 25; core_ext = core + size + rvol_63 +
+  beta_252 + 17 regime broadcast columns; core_mom = core + 20 momentum / reversal / relative-strength / trend / breakout
+  columns of `set: tech`; core_text), `universe_rules` and `protocol` (CPCV 9 groups / k 2 / embargo 1, importance repeats 5,
+  bootstrap 10,000). They were added **before** `ideation trials register --family 1Y-june` (50 new rows, N = 50, hashes
+  frozen), so nothing was changed after the first fit.
+- Persisted (live `ideation` schema, normal run registry): `experiment_trial` 48 `ok` + 2 `registered` (status, n_oos, ic_series,
+  spread_series, run 263), `model` 48 `candidate` rows (never `champion`: promotion is manual), `wf_result` 282 rows (6 anchors per
+  June trial incl. 2019, 2 for POSTCOVID, 5 per March trial), `oos_prediction` 336,180 rows (WFO only; CPCV scores are in parquet,
+  the table key allows one row per name), `rank_calibration` 5,880 rows (nested 2,590, pooled 3,290). Parquet copies in
+  `IDEATION_DATA_DIR/oos/<trial_id>.parquet`; full report `IDEATION_DATA_DIR/reports/ms1/MS1_1Y_bakeoff_<snap>.md` (all 48 trials x R-A
+  nested + pooled, R-B, R-C; 278 KB, not in git). The holdout was never read: `holdout_unseal` has 0 rows.
+- Tests: `tests/leakage/test_ms1_bakeoff.py` (fold table = the C3 table exactly, panel never holds a sealed anchor, WFO resume without
+  refit and identical scores, 36 CPCV splits + overlap check with teeth, consensus scores), `tests/unit/test_ms1_metrics.py` (4),
+  **T-26** wired to the bake-off entry points (`load_panel`, `run_wfo`, `run_cpcv` on a synthetic source that contains 2025 anchors),
+  **T-02** `tests/lake/test_ms1_lake.py`.
+
+### Commands and runtimes
+| command | result | runtime |
+|---|---|---|
+| `uv run ideation trials register --family 1Y-june` | 50 registered, N = 50 | 2 s |
+| `uv run ideation train --horizon 1y --bakeoff --cpcv --trials <11 linear/Phase-I> --no-report` (smoke) | run 262 | 88 s |
+| `nice -n 10 uv run ideation train --horizon 1y --bakeoff --cpcv --no-report` (run 263) | 48 trials ok, 0 failed; 264 WFO fits + 1,512 CPCV fits | **7,681 s wall (128 min)** |
+| `uv run ideation backtest report --leakage-green` | tables, DSR, PBO, 90/10, gates, adversarial, persistence | 753 s (adversarial audits cached afterwards) |
+Fit time only: WFO 283 s (card limit 20 min: met), CPCV 3,192 s = 53 min (limit 60: met). Wall time exceeds the card's 90 min because it
+includes the clustered permutation importance (5 repeats per fold, SVR dominates: ~15 min per SVR trial), scoring, checkpoint I/O,
+and sharing the Mac with MS2 at `nice -n 10`, 4 threads. Per trial wall: P1 linear 3-6 s, ridge 5-9 s, LGBM/XGB 35-55 s, RF 3-5.5 min,
+MLP 4-5.5 min, SVR 16-21 min. The card number was not met in wall time; no statistic was cut to meet it.
+
+### Protocol as implemented (decisions the plan left open)
+- **Folds**: June anchors 2016-2024; WFO tests 2019 (indicative) + 2020-2024 (counted), train {T-3, T-2, T-1} (2019 <- 2016-2018 ... 2024 <-
+  2021-2023; unit-tested against the C3 table). #7 and #38 use 2 anchors, #39 expands, #9 trains on anchors >= 2020-06-01 (tests 2023, 2024). March family:
+  anchors 2016-03..2024-03, counted 2021-2024, indicative 2020.
+- **Universe**: U_score; #42 = `in_u_score_adv05`; #43 U1000 = `in_u_score AND in_u1000` (a name needs a company and fundamentals to be scorable).
+  R1 and the percentile p run on the **whole** trial universe at the anchor; unlabelled rows would only be dropped from fits and metrics
+  (none occurred: every U_score name has a label at every June anchor 2016-2024).
+- **Target**: rank-gauss of `ret_total` within the trial universe at each train anchor (not the stored `xs_rank`, which pools U_score).
+- **CPCV** (9 groups = 9 anchors, k = 2, embargo 1; 36 splits, 8 paths): window variants (#7, #38, #39) have no CPCV analogue (CPCV trains
+  on every non-purged anchor), so their CPCV is their base's (copied, listed as such) and they are left out of the PBO matrix; #9 uses its own
+  anchor restriction; consensus trials are built per split from the members. March trials run CPCV on the March anchors and are not in the June PBO.
+- **PBO**: matrix = path-averaged CPCV OOS IC per anchor (9 x trials; 42 trials, `CONS_UNAN` left out for an incomplete series); for each of the 36 splits
+  OOS = mean over the 2 test anchors, IS = mean over the split's train anchors of the **same out-of-sample matrix**, never an in-sample fitted IC
+  (high-capacity learners would always win otherwise). PBO = share of splits with logit <= 0.
+- **DSR**: IC series of the 5 counted anchors (n_obs 5), per-trial Sharpe = mean/sd of IC, variance of Sharpe across the trials with >= 3 counted tests,
+  **N = 50** (family count, all statuses). Also computed on the cost-adjusted Q5-Q1 spread.
+- **90/10 (reading b)** = `0.9 z(mean OOS IC) + 0.1 z(stability)`, stability from the clustered permutation importance of consecutive folds (5 repeats, not 20),
+  across the 40 eligible trials (June family, 5 counted tests, fitted: not #9, #40, #41, #46-#48).
+- **Gates**: 02 §5.5 with O3. G1 mean IC >= 0.03, CI90 (iid bootstrap over the 5 anchors, 10,000) > 0, >= 4/5 positive. G2 mean Q5 `excess_univ_med` minus
+  2 x 12 bps x Q5 turnover > 0 in >= 4/5 and on average (turnover vs the previous OOS anchor; the 2019 anchor assumes full turnover). G3 mean dIC vs P1_COMP_EW
+  >= -0.01 and paired-bootstrap P(dIC>0) >= 0.6. G4 DSR >= 0.90 and PBO <= 0.5. G5 leakage suites green and adversarial AUC <= 0.70 on counted folds.
+  **G2 as specified is skew-biased**: a quintile *mean* minus the universe *median* is positive for any random quintile, so every trial passes it (including
+  RF with IC 0). The unbiased companion G2b (Q5 mean minus the equal-weight universe mean, net of costs) is reported next to it: it passes for P1_UNIFIED_XS and fails
+  for the baseline and all RF variants. G2b is informational and not part of `all_pass`.
+- **Adversarial validation** (02 §6.1, blocking): RF 200 trees depth 6, 5-fold CV, train vs test anchor, on the cross-sectional **value** columns of the model input;
+  the verdict uses the 5 counted folds (2019 is reported). With the isna / na_layout flags it is within 0.01-0.02 of that; with the anchor-constant regime columns
+  (RF_GLOBAL_EXT) it is 1.00 by construction (informational). Top shift features are the growth columns (rev_g1, eps_g1, rev_g3) and their missing flags: the share of
+  zero-filled growth values and the joint structure shift between years, which a per-anchor rank-gauss cannot remove. 02 §6.1 prescribes dropping or re-transforming the top
+  shift feature and logging the rerun as a **new trial**; that would raise N beyond the pre-registered 50, so it was not done. This is reported as a finding, not repaired.
+- **Consensus trials**: CONS_MAJ score = number of the 10 members placing the name in D10 (votes), CONS_UNAN = 1 if all 10 do (anchor excluded, score NaN,
+  when fewer than 5 names), ENS_RANKAVG = mean p. CONS_UNAN had >= 5 unanimous names at only 1 of 5 counted anchors, so its IC row is a single number.
+- **R-A**: bucket means are per-anchor means averaged over the 5 counted anchors; nested alpha/band use counted anchors < T (the first counted anchor, 2020, has no
+  history and 2019 is excluded), pooled uses all 5 (descriptive). Conformal bands are the 80% equal-tailed Mondrian bands of 05 §2 R6.
+- **Benchmarks** (bench-1Y, reported only, not in N): computed from the same R1 matrix with equal weights.
+
+### Results
+## Selection (90/10 reading b; eligible = June-family fitted trials with 5 counted tests)
+
+| trial | 0.9 z(IC) + 0.1 z(stability) | mean IC | stability |
+|---|---|---|---|
+| P1_UNIFIED_XS | 3.576 | 0.121 | 0.806 |
+| P1_UNIFIED | 3.242 | 0.110 | 0.800 |
+| P1_FINAL_WFO | 2.349 | 0.079 | 0.858 |
+| P1_COMP_DOSSIER | 0.781 | 0.038 | 0.321 |
+| P1_COMP_EW | 0.545 | 0.029 | 0.383 |
+| RF_GLOBAL_MOM | 0.529 | 0.029 | 0.330 |
+| P1_INDUSTRY_WF | 0.501 | 0.027 | 0.377 |
+| RIDGE_GLOBAL_MOM | 0.501 | 0.026 | 0.433 |
+| SCR_GLOBAL | 0.146 | 0.014 | 0.465 |
+| LGBM_HYBRID | 0.035 | 0.011 | 0.403 |
+
+#### Gates
+## Gates (02 §5.5 with 05 O3)
+
+Leakage tests green: yes (supplied by the runner). DSR uses N = 50.
+
+| trial | G1_ic | G2_cost_adj_top_quintile | G2b_vs_EW_mean_info | G3_vs_baseline | G4_dsr_pbo | G5_leakage_adversarial | all_pass | dsr | pbo | adversarial | worst AUC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| P1_UNIFIED_XS | yes | yes | yes | yes | no | no | no | 0.813 | 0.139 | BLOCK | 0.722 |
+| P1_COMP_EW | no | yes | no | n/a | no | no | no | 0.152 | 0.139 | BLOCK | 0.722 |
+| RF_GLOBAL | no | yes | no | no | no | no | no | 0.017 | 0.139 | BLOCK | 0.722 |
+| RF_GLOBAL_EXT | no | yes | no | no | no | no | no | 0.013 | 0.139 | BLOCK | 0.728 |
+| RF_GLOBAL_9010SEC | no | yes | no | no | no | no | no | 0.018 | 0.139 | BLOCK | 0.722 |
+| RF_GLOBAL_EXT_9010SEC | no | yes | no | no | no | no | no | 0.013 | 0.139 | BLOCK | 0.728 |
+
+DSR(IC) of the champion 0.813 (SR0 and variance in the report), P(dIC>0) vs the baseline 0.986. PBO and DSR use the whole family (N = 50).
+
+#### RF lineage
+## RF lineage (RF_GLOBAL -> RF_GLOBAL_EXT -> {9010SEC, EXT_9010SEC} -> 90/10 pick)
+
+| step | mean IC | CI90 | reference (not target) |
+|---|---|---|---|
+| RF_GLOBAL | 0.003 | -0.075 .. 0.074 | 0.223 |
+| RF_GLOBAL_EXT | -0.002 | -0.071 .. 0.059 | 0.233 |
+| RF_GLOBAL_9010SEC | 0.003 | -0.074 .. 0.073 | 0.250 |
+| RF_GLOBAL_EXT_9010SEC | -0.001 | -0.077 .. 0.060 | n/a |
+| 90/10 pick: P1_UNIFIED_XS | 0.121 |  | 0.250 |
+
+The dossier values (0.223 / 0.233 / 0.25) are on a different dataset, years and N; printed for reconciliation only.
+
+#### Benchmarks (bench-1Y; levels are 1Y total returns Jun->Jun)
+## Benchmarks (bench-1Y, reported only, not in N)
+
+| benchmark | mean IC | pos | Q5 excess | Q5 excess net 12bps |
+|---|---|---|---|---|
+| MOM_12_1 | 0.012 | 3/5 | 16.5% | 16.3% |
+| LOWVOL | 0.024 | 3/5 | 9.4% | 9.2% |
+| VALUE_ONLY | 0.129 | 5/5 | 28.2% | 28.1% |
+| QUALITY_ONLY | -0.022 | 2/5 | 7.2% | 7.1% |
+| GROWTH_ONLY | 0.035 | 4/5 | 24.3% | 24.1% |
+
+| anchor | universe median TR | Nifty 500 PR | EW U_score TR |
+|---|---|---|---|
+| 2020-06-30 | 81.3% | 57.5% | 110.7% |
+| 2021-06-30 | -3.6% | -0.5% | 6.4% |
+| 2022-06-30 | 21.7% | 22.7% | 36.2% |
+| 2023-06-30 | 39.8% | 36.5% | 65.5% |
+| 2024-06-28 | -5.0% | 3.9% | -0.1% |
+
+#### PBO
+## PBO (CPCV, 36 two-group combinations)
+
+PBO = 0.139, trials in the matrix = 42, median logit = 1.924. Left out for incomplete anchor ICs: ['CONS_UNAN']. IS winners: {'RIDGE_GLOBAL_MOM': 18, 'P1_UNIFIED_XS': 10, 'RF_GLOBAL_MOM': 7, 'P1_COMP_EW': 1}
+
+## Adversarial validation (champion's and RF_GLOBAL_EXT's inputs; the other focus trials share the matrix)
+
+| trial | fold | AUC values | verdict | AUC +flags (info) | AUC +broadcast (info) | top shift features | OOD share |
+|---|---|---|---|---|---|---|---|
+| P1_UNIFIED_XS | 2019-06-28 | 0.81 | BLOCK | 0.81 | n/a | isna_rev_g3, isna_eps_g3, eps_g3 | 2.5% |
+| P1_UNIFIED_XS | 2020-06-30 | 0.72 | BLOCK | 0.71 | n/a | isna_eps_g3, eps_g1, rev_g1 | 1.4% |
+| P1_UNIFIED_XS | 2021-06-30 | 0.69 | warning | 0.71 | n/a | rev_g1, eps_g1, nd_ebitda | 0.7% |
+| P1_UNIFIED_XS | 2022-06-30 | 0.71 | BLOCK | 0.72 | n/a | rev_g3, eps_g1, rev_g1 | 1.1% |
+| P1_UNIFIED_XS | 2023-06-30 | 0.70 | BLOCK | 0.71 | n/a | rev_g3, eps_g1, rev_g1 | 1.1% |
+| P1_UNIFIED_XS | 2024-06-28 | 0.72 | BLOCK | 0.72 | n/a | eps_g1, rev_g1, nd_ebitda | 0.7% |
+| RF_GLOBAL_EXT | 2019-06-28 | 0.81 | BLOCK | 0.82 | 1.00 | isna_eps_g3, isna_rev_g3, eps_g3 | 3.4% |
+| RF_GLOBAL_EXT | 2020-06-30 | 0.73 | BLOCK | 0.72 | 1.00 | isna_eps_g3, eps_g1, rev_g1 | 1.6% |
+| RF_GLOBAL_EXT | 2021-06-30 | 0.69 | warning | 0.71 | 1.00 | eps_g1, nd_ebitda, eps_g3 | 1.0% |
+| RF_GLOBAL_EXT | 2022-06-30 | 0.72 | BLOCK | 0.74 | 1.00 | rev_g3, eps_g1, eps_g3 | 0.9% |
+| RF_GLOBAL_EXT | 2023-06-30 | 0.71 | BLOCK | 0.72 | 1.00 | rev_g3, eps_g1, eps_g3 | 1.5% |
+| RF_GLOBAL_EXT | 2024-06-28 | 0.73 | BLOCK | 0.74 | 1.00 | eps_g1, nd_ebitda, rev_g1 | 0.6% |
+
+OOD (isolation forest, P99 of the training scores): 0.7-3.4% of the test cross-section is flagged per fold, below the 10% "shifted" mark.
+
+#### IC by anchor, key trials (Jun-2019 is indicative)
+| trial | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | mean 2020-24 |
+|---|---|---|---|---|---|---|---|
+| P1_UNIFIED_XS | -0.170 | 0.253 | 0.071 | 0.116 | 0.133 | 0.034 | 0.121 |
+| P1_FINAL_WFO | 0.007 | 0.124 | 0.014 | 0.113 | 0.105 | 0.041 | 0.079 |
+| P1_COMP_EW (baseline) | 0.095 | 0.003 | 0.025 | 0.024 | -0.001 | 0.092 | 0.029 |
+| RF_GLOBAL | 0.200 | -0.176 | 0.050 | -0.008 | 0.138 | 0.010 | 0.003 |
+| RF_GLOBAL_EXT | 0.203 | -0.173 | 0.064 | 0.000 | 0.097 | 0.003 | -0.002 |
+| RF_GLOBAL_MOM | 0.184 | -0.145 | 0.032 | 0.025 | 0.174 | 0.059 | 0.029 |
+| LGBM_GLOBAL | 0.164 | -0.179 | 0.060 | -0.040 | 0.115 | 0.009 | -0.007 |
+| XGB_GLOBAL | 0.159 | -0.178 | 0.037 | -0.032 | 0.105 | 0.020 | -0.010 |
+| ENS_RANKAVG | 0.172 | -0.158 | 0.042 | -0.023 | 0.137 | 0.028 | 0.005 |
+
+#### Tables R-D (all fitted trials), then R-A..R-C for the champion, the baseline and RF_GLOBAL
+(The R-A/R-B/R-C tables of every other trial are in the report file named above.)
+
+R-D (all fitted trials)
+
+| # | trial | mean IC | CI90 | CI95 | pos | IC-IR | DSR(IC) | DSR(spread) | PBO | 90/10 | stab | CPCV mean IC | CPCV paths>0 | dIC vs base | P(dIC>0) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | P1_UNIFIED | 0.110 | 0.057 .. 0.170 | 0.053 .. 0.178 | 5/5 | 1.335 | 0.731 | 0.699 | 0.139 | 3.242 | 0.800 | 0.060 | 100.0% | 0.082 | 0.969 |
+| 2 | P1_UNIFIED_XS | 0.121 | 0.070 .. 0.180 | 0.065 .. 0.193 | 5/5 | 1.456 | 0.813 | 0.626 | 0.139 | 3.576 | 0.806 | 0.069 | 100.0% | 0.093 | 0.986 |
+| 3 | P1_COMP_DOSSIER | 0.038 | 0.015 .. 0.059 | 0.013 .. 0.062 | 4/5 | 1.177 | 0.553 | 0.109 | 0.139 | 0.781 | 0.321 | 0.054 | 100.0% | 0.009 | 0.693 |
+| 4 | P1_COMP_EW | 0.029 | 0.007 .. 0.056 | 0.006 .. 0.061 | 4/5 | 0.764 | 0.152 | 0.004 | 0.139 | 0.545 | 0.383 | 0.060 | 100.0% | n/a | n/a |
+| 5 | P1_INDUSTRY_WF | 0.027 | -0.042 .. 0.095 | -0.064 .. 0.112 | 4/5 | 0.250 | 0.056 | 0.020 | 0.139 | 0.501 | 0.377 | 0.022 | 87.5% | -0.001 | 0.455 |
+| 6 | P1_WFO_3Y | -0.058 | -0.116 .. 0.000 | -0.116 .. 0.000 | 1/5 | -0.701 | n/a | n/a | 0.139 | n/a | 0.376 | 0.033 | 100.0% | -0.106 | 0.000 |
+| 7 | P1_WFO_2Y | -0.063 | -0.102 .. -0.024 | -0.102 .. -0.024 | 0/5 | -1.134 | n/a | n/a | 0.139 | n/a | 0.500 | 0.033 | 100.0% | -0.111 | 0.000 |
+| 8 | P1_FINAL_WFO | 0.079 | 0.047 .. 0.113 | 0.039 .. 0.116 | 5/5 | 1.624 | 0.775 | 0.788 | 0.139 | 2.349 | 0.858 | 0.060 | 100.0% | 0.051 | 0.941 |
+| 9 | P1_POSTCOVID | 0.066 | 0.028 .. 0.105 | 0.028 .. 0.105 | 2/2 | 1.220 | n/a | n/a | 0.139 | n/a | 0.761 | 0.055 | 100.0% | 0.021 | 0.755 |
+| 10 | OLS_GLOBAL | -0.004 | -0.068 .. 0.059 | -0.088 .. 0.076 | 3/5 | -0.038 | 0.012 | 0.007 | 0.139 | -0.389 | 0.451 | 0.014 | 100.0% | -0.032 | 0.221 |
+| 11 | SCR_GLOBAL | 0.014 | -0.045 .. 0.073 | -0.055 .. 0.089 | 3/5 | 0.150 | 0.029 | 0.039 | 0.139 | 0.146 | 0.465 | 0.041 | 100.0% | -0.015 | 0.320 |
+| 12 | RF_GLOBAL | 0.003 | -0.075 .. 0.074 | -0.097 .. 0.085 | 3/5 | 0.023 | 0.017 | 0.010 | 0.139 | -0.347 | 0.194 | 0.022 | 100.0% | -0.026 | 0.291 |
+| 13 | RF_INDUSTRY | 0.006 | -0.073 .. 0.081 | -0.088 .. 0.087 | 3/5 | 0.051 | 0.021 | 0.003 | 0.139 | -0.136 | 0.385 | 0.021 | 100.0% | -0.023 | 0.317 |
+| 14 | RF_HYBRID | 0.005 | -0.075 .. 0.079 | -0.096 .. 0.090 | 3/5 | 0.041 | 0.019 | 0.007 | 0.139 | -0.246 | 0.251 | 0.023 | 100.0% | -0.024 | 0.286 |
+| 15 | PRIDGE_GLOBAL | 0.003 | -0.059 .. 0.063 | -0.073 .. 0.067 | 3/5 | 0.030 | 0.018 | 0.007 | 0.139 | -0.283 | 0.296 | 0.025 | 100.0% | -0.026 | 0.245 |
+| 16 | PRIDGE_INDUSTRY | -0.021 | -0.096 .. 0.044 | -0.112 .. 0.053 | 3/5 | -0.200 | 0.003 | 0.000 | 0.139 | -0.965 | 0.361 | 0.003 | 50.0% | -0.050 | 0.094 |
+| 17 | PRIDGE_HYBRID | -0.011 | -0.068 .. 0.036 | -0.084 .. 0.049 | 3/5 | -0.133 | 0.005 | 0.028 | 0.139 | -0.674 | 0.327 | 0.019 | 100.0% | -0.040 | 0.141 |
+| 18 | RIDGE_GLOBAL | -0.002 | -0.069 .. 0.062 | -0.087 .. 0.077 | 3/5 | -0.019 | 0.013 | 0.012 | 0.139 | -0.335 | 0.442 | 0.015 | 100.0% | -0.031 | 0.244 |
+| 19 | RIDGE_INDUSTRY | -0.002 | -0.082 .. 0.058 | -0.098 .. 0.065 | 4/5 | -0.022 | 0.012 | 0.001 | 0.139 | -0.324 | 0.484 | 0.001 | 50.0% | -0.031 | 0.216 |
+| 20 | RIDGE_HYBRID | -0.009 | -0.075 .. 0.047 | -0.083 .. 0.057 | 2/5 | -0.102 | 0.007 | 0.001 | 0.139 | -0.631 | 0.319 | 0.024 | 100.0% | -0.038 | 0.179 |
+| 21 | LGBM_GLOBAL | -0.007 | -0.086 .. 0.062 | -0.103 .. 0.073 | 3/5 | -0.062 | 0.010 | 0.001 | 0.139 | -0.637 | 0.193 | 0.026 | 100.0% | -0.036 | 0.247 |
+| 22 | LGBM_INDUSTRY | 0.008 | -0.061 .. 0.072 | -0.068 .. 0.080 | 3/5 | 0.078 | 0.023 | 0.027 | 0.139 | -0.003 | 0.520 | 0.024 | 100.0% | -0.021 | 0.289 |
+| 23 | LGBM_HYBRID | 0.011 | -0.058 .. 0.074 | -0.077 .. 0.087 | 3/5 | 0.110 | 0.029 | 0.006 | 0.139 | 0.035 | 0.403 | 0.030 | 100.0% | -0.017 | 0.328 |
+| 24 | XGB_GLOBAL | -0.010 | -0.082 .. 0.057 | -0.099 .. 0.064 | 3/5 | -0.091 | 0.007 | 0.007 | 0.139 | -0.721 | 0.189 | 0.024 | 100.0% | -0.038 | 0.188 |
+| 25 | XGB_INDUSTRY | -0.004 | -0.073 .. 0.063 | -0.086 .. 0.076 | 3/5 | -0.036 | 0.012 | 0.005 | 0.139 | -0.329 | 0.545 | 0.024 | 100.0% | -0.032 | 0.198 |
+| 26 | XGB_HYBRID | 0.003 | -0.067 .. 0.072 | -0.081 .. 0.081 | 3/5 | 0.025 | 0.017 | 0.029 | 0.139 | -0.196 | 0.449 | 0.030 | 100.0% | -0.026 | 0.274 |
+| 27 | MLP_GLOBAL | -0.011 | -0.076 .. 0.054 | -0.089 .. 0.064 | 3/5 | -0.108 | 0.008 | 0.000 | 0.139 | -0.770 | 0.157 | 0.012 | 75.0% | -0.039 | 0.182 |
+| 28 | MLP_INDUSTRY | -0.008 | -0.076 .. 0.046 | -0.090 .. 0.053 | 3/5 | -0.088 | 0.007 | 0.000 | 0.139 | -0.559 | 0.381 | 0.013 | 75.0% | -0.037 | 0.151 |
+| 29 | MLP_HYBRID | -0.001 | -0.070 .. 0.063 | -0.087 .. 0.070 | 2/5 | -0.015 | 0.014 | 0.007 | 0.139 | -0.353 | 0.393 | 0.019 | 100.0% | -0.030 | 0.255 |
+| 30 | SVR_GLOBAL | -0.007 | -0.083 .. 0.063 | -0.101 .. 0.069 | 3/5 | -0.067 | 0.010 | 0.007 | 0.139 | -0.644 | 0.193 | 0.020 | 100.0% | -0.036 | 0.190 |
+| 31 | SVR_INDUSTRY | -0.013 | -0.080 .. 0.049 | -0.096 .. 0.054 | 2/5 | -0.131 | 0.005 | 0.000 | 0.139 | -0.592 | 0.561 | 0.012 | 75.0% | -0.041 | 0.127 |
+| 32 | SVR_HYBRID | 0.002 | -0.066 .. 0.062 | -0.079 .. 0.065 | 3/5 | 0.023 | 0.018 | 0.017 | 0.139 | -0.185 | 0.486 | 0.024 | 100.0% | -0.026 | 0.243 |
+| 33 | RF_GLOBAL_EXT | -0.002 | -0.071 .. 0.059 | -0.091 .. 0.065 | 4/5 | -0.017 | 0.013 | 0.003 | 0.139 | -0.410 | 0.314 | 0.051 | 100.0% | -0.030 | 0.228 |
+| 34 | RF_GLOBAL_MOM | 0.029 | -0.043 .. 0.098 | -0.070 .. 0.116 | 4/5 | 0.256 | 0.059 | 0.043 | 0.139 | 0.529 | 0.330 | 0.091 | 100.0% | 0.001 | 0.503 |
+| 35 | LGBM_GLOBAL_MOM | -0.000 | -0.078 .. 0.068 | -0.091 .. 0.077 | 3/5 | -0.003 | 0.015 | 0.003 | 0.139 | -0.329 | 0.377 | 0.070 | 100.0% | -0.029 | 0.248 |
+| 36 | RIDGE_GLOBAL_MOM | 0.026 | -0.047 .. 0.108 | -0.055 .. 0.124 | 2/5 | 0.218 | 0.029 | 0.035 | 0.139 | 0.501 | 0.433 | 0.095 | 100.0% | -0.002 | 0.418 |
+| 37 | RF_GLOBAL_DMEDIAN | 0.004 | -0.073 .. 0.077 | -0.097 .. 0.089 | 3/5 | 0.035 | 0.018 | 0.016 | 0.139 | -0.281 | 0.236 | 0.024 | 100.0% | -0.025 | 0.311 |
+| 38 | RF_GLOBAL_TRAIN2Y | 0.008 | -0.086 .. 0.088 | -0.110 .. 0.098 | 4/5 | 0.061 | 0.023 | 0.007 | 0.139 | -0.033 | 0.445 | 0.022 | 100.0% | -0.021 | 0.410 |
+| 39 | RF_GLOBAL_EXPANDING | 0.001 | -0.073 .. 0.047 | -0.080 .. 0.050 | 4/5 | 0.010 | 0.016 | 0.000 | 0.139 | -0.268 | 0.414 | 0.022 | 100.0% | -0.028 | 0.223 |
+| 40 | RF_GLOBAL_MARCH | -0.020 | -0.080 .. 0.039 | -0.098 .. 0.061 | 1/4 | -0.226 | 0.013 | 0.046 | 0.139 | n/a | 0.487 | -0.020 | 25.0% | n/a | n/a |
+| 41 | P1_COMP_EW_MARCH | -0.003 | -0.075 .. 0.058 | -0.076 .. 0.068 | 2/4 | -0.038 | 0.025 | 0.002 | 0.139 | n/a | 0.580 | 0.041 | 100.0% | n/a | n/a |
+| 42 | RF_GLOBAL_ADV05 | 0.004 | -0.078 .. 0.085 | -0.094 .. 0.092 | 2/5 | 0.030 | 0.018 | 0.014 | 0.139 | -0.323 | 0.185 | 0.020 | 100.0% | -0.025 | 0.301 |
+| 43 | RF_GLOBAL_U1000 | -0.003 | -0.100 .. 0.099 | -0.106 .. 0.107 | 2/5 | -0.022 | 0.014 | 0.022 | 0.139 | -0.510 | 0.219 | 0.016 | 87.5% | -0.032 | 0.299 |
+| 46 | CONS_MAJ | -0.004 | -0.067 .. 0.065 | -0.076 .. 0.082 | 2/5 | -0.036 | 0.013 | n/a | 0.139 | n/a | n/a | -0.003 | 25.0% | -0.032 | 0.272 |
+| 47 | CONS_UNAN | -0.001 | -0.001 .. -0.001 | -0.001 .. -0.001 | 0/5 | n/a | n/a | n/a | 0.139 | n/a | n/a | 0.011 | 37.5% | -0.025 | 0.000 |
+| 48 | ENS_RANKAVG | 0.005 | -0.067 .. 0.075 | -0.083 .. 0.083 | 3/5 | 0.048 | 0.020 | 0.018 | 0.139 | n/a | n/a | 0.033 | 100.0% | -0.023 | 0.289 |
+| 49 | RF_GLOBAL_9010SEC | 0.003 | -0.074 .. 0.073 | -0.100 .. 0.084 | 3/5 | 0.030 | 0.018 | 0.008 | 0.139 | -0.327 | 0.188 | 0.030 | 100.0% | -0.025 | 0.291 |
+| 50 | RF_GLOBAL_EXT_9010SEC | -0.001 | -0.077 .. 0.060 | -0.095 .. 0.064 | 4/5 | -0.013 | 0.013 | 0.002 | 0.139 | -0.404 | 0.304 | 0.057 | 100.0% | -0.030 | 0.265 |
+
+P1_UNIFIED_XS: R-A nested
+
+| bucket | score range (latest) | p range | IS range | mean n | mean excess | median excess | hit | beat N500 | beat EW | alpha_iso (latest) | 80% band (latest) | coverage | anchors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| P99 | 5.422 .. 7.658 | 0.99 .. 1.00 | 99 .. 100 | 13 | 17.5% | 10.6% | 47.8% | 51.5% | 44.7% | 16.9% | -44.2% .. 131.6% | 79.9% | 5 |
+| P95 | 3.912 .. 7.658 | 0.95 .. 1.00 | 95 .. 100 | 63 | 36.4% | 15.2% | 58.2% | 56.6% | 45.1% | 16.9% | -44.2% .. 131.6% | 85.3% | 5 |
+| D10 | 2.691 .. 7.658 | 0.90 .. 1.00 | 90 .. 100 | 127 | 28.8% | 12.5% | 55.6% | 53.8% | 43.6% | 16.9% | -44.2% .. 131.6% | 85.1% | 5 |
+| D9 | 1.622 .. 2.677 | 0.80 .. 0.90 | 80 .. 90 | 127 | 30.5% | 13.7% | 56.0% | 57.0% | 45.0% | 16.9% | -41.6% .. 119.6% | 86.3% | 5 |
+| D8 | 0.780 .. 1.620 | 0.70 .. 0.80 | 70 .. 80 | 127 | 29.4% | 7.9% | 55.1% | 54.8% | 43.3% | 16.9% | -34.7% .. 119.2% | 90.3% | 5 |
+| D7 | 0.077 .. 0.778 | 0.60 .. 0.70 | 60 .. 70 | 127 | 15.6% | 0.5% | 50.1% | 51.5% | 37.1% | 9.5% | -43.3% .. 88.3% | 86.4% | 5 |
+| D6 | 0.000 .. 0.075 | 0.53 .. 0.60 | 53 .. 60 | 168 | 13.5% | 0.3% | 51.9% | 51.1% | 39.3% | 9.5% | -42.5% .. 101.4% | 87.4% | 5 |
+| D5 | -0.419 .. -0.000 | 0.40 .. 0.47 | 40 .. 47 | 85 | 27.2% | 3.9% | 51.3% | 50.5% | 40.0% | 9.5% | -44.6% .. 106.7% | 84.1% | 5 |
+| D4 | -1.083 .. -0.420 | 0.30 .. 0.40 | 30 .. 40 | 127 | 12.4% | -0.9% | 48.5% | 47.8% | 36.5% | 7.2% | -46.2% .. 90.1% | 90.1% | 5 |
+| D3 | -1.665 .. -1.085 | 0.20 .. 0.30 | 20 .. 30 | 127 | 10.0% | -2.0% | 46.4% | 47.6% | 34.3% | 5.7% | -50.7% .. 88.3% | 87.8% | 5 |
+| D2 | -2.528 .. -1.670 | 0.10 .. 0.20 | 10 .. 20 | 127 | 5.5% | -7.7% | 42.8% | 44.0% | 31.2% | 3.1% | -53.2% .. 77.4% | 87.4% | 5 |
+| D1 | -6.033 .. -2.549 | 0.00 .. 0.10 | 0 .. 10 | 127 | 2.1% | -12.3% | 38.3% | 39.2% | 28.3% | 1.8% | -56.0% .. 77.5% | 84.0% | 5 |
+| P5 | -6.033 .. -3.179 | 0.00 .. 0.05 | 0 .. 5 | 63 | 0.6% | -15.3% | 35.3% | 35.5% | 26.7% | 1.8% | -56.2% .. 77.4% | 80.0% | 5 |
+| P1 | -6.033 .. -4.614 | 0.00 .. 0.01 | 0 .. 1 | 13 | 18.8% | 1.5% | 35.3% | 41.6% | 34.0% | 1.8% | -56.2% .. 77.4% | 73.4% | 5 |
+
+P1_UNIFIED_XS: R-B
+
+| anchor | set | IC | CI90 (names) | n scored | coverage | D10-D1 | Q5-Q1 | Q5-Q1 net 12bps | Q5 excess net |
+|---|---|---|---|---|---|---|---|---|---|
+| 2019-06-28 | indicative | -0.170 | -0.222 .. -0.116 | 863 | 100.0% | -12.6% | -21.8% | -22.3% | -1.7% |
+| 2020-06-30 | counted | 0.253 | 0.199 .. 0.305 | 857 | 100.0% | 71.8% | 68.4% | 68.3% | 67.3% |
+| 2021-06-30 | counted | 0.071 | 0.022 .. 0.119 | 1172 | 100.0% | -1.5% | 8.6% | 8.3% | 16.2% |
+| 2022-06-30 | counted | 0.116 | 0.070 .. 0.162 | 1303 | 100.0% | 20.9% | 20.0% | 19.8% | 17.1% |
+| 2023-06-30 | counted | 0.133 | 0.088 .. 0.177 | 1409 | 100.0% | 37.8% | 27.5% | 27.3% | 40.6% |
+| 2024-06-28 | counted | 0.034 | -0.009 .. 0.076 | 1588 | 100.0% | 4.2% | 4.5% | 4.3% | 6.4% |
+
+P1_UNIFIED_XS: R-C
+
+| anchor | Spearman(decile, mean ret) | P99>P95>D10>D9 | P1<P5<D1<D2 |
+|---|---|---|---|
+| 2020-06-30 | 0.697 | no | no |
+| 2021-06-30 | 0.333 | no | no |
+| 2022-06-30 | 0.661 | no | yes |
+| 2023-06-30 | 0.879 | yes | no |
+| 2024-06-28 | 0.358 | no | no |
+| count of 5 | 0.585 | 1 | 1 |
+
+P1_COMP_EW: R-A nested
+
+| bucket | score range (latest) | p range | IS range | mean n | mean excess | median excess | hit | beat N500 | beat EW | alpha_iso (latest) | 80% band (latest) | coverage | anchors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| P99 | 0.587 .. 0.696 | 0.99 .. 1.00 | 99 .. 100 | 13 | 10.1% | -12.7% | 43.2% | 41.4% | 34.1% | 9.9% | -44.4% .. 102.5% | 85.4% | 5 |
+| P95 | 0.456 .. 0.696 | 0.95 .. 1.00 | 95 .. 100 | 63 | 12.4% | -0.3% | 48.8% | 48.1% | 34.3% | 9.9% | -44.4% .. 102.5% | 90.6% | 5 |
+| D10 | 0.381 .. 0.696 | 0.90 .. 1.00 | 90 .. 100 | 127 | 16.7% | 4.2% | 51.4% | 50.4% | 38.8% | 9.9% | -44.4% .. 102.5% | 88.3% | 5 |
+| D9 | 0.289 .. 0.381 | 0.80 .. 0.90 | 80 .. 90 | 127 | 12.5% | -0.3% | 47.7% | 47.0% | 35.9% | 9.9% | -48.0% .. 99.6% | 89.3% | 5 |
+| D8 | 0.210 .. 0.289 | 0.70 .. 0.80 | 70 .. 80 | 127 | 19.0% | 3.1% | 51.0% | 50.5% | 40.1% | 9.9% | -45.1% .. 113.1% | 86.5% | 5 |
+| D7 | 0.142 .. 0.210 | 0.60 .. 0.70 | 60 .. 70 | 127 | 16.6% | 2.6% | 53.0% | 53.0% | 39.2% | 9.9% | -38.9% .. 85.7% | 86.4% | 5 |
+| D6 | 0.077 .. 0.141 | 0.50 .. 0.60 | 50 .. 60 | 127 | 16.4% | -1.2% | 49.4% | 51.7% | 38.2% | 9.9% | -45.2% .. 112.5% | 88.2% | 5 |
+| D5 | -0.007 .. 0.077 | 0.40 .. 0.50 | 40 .. 50 | 126 | 16.5% | 3.4% | 53.6% | 51.9% | 38.0% | 9.9% | -46.7% .. 81.8% | 86.5% | 5 |
+| D4 | -0.110 .. -0.008 | 0.30 .. 0.40 | 30 .. 40 | 127 | 16.7% | -0.9% | 48.4% | 48.2% | 38.8% | 9.9% | -43.7% .. 107.6% | 89.7% | 5 |
+| D3 | -0.245 .. -0.111 | 0.20 .. 0.30 | 20 .. 30 | 127 | 20.8% | 0.1% | 49.3% | 50.0% | 38.3% | 9.9% | -45.2% .. 115.2% | 86.2% | 5 |
+| D2 | -0.487 .. -0.248 | 0.10 .. 0.20 | 10 .. 20 | 127 | 18.0% | -4.4% | 44.7% | 46.6% | 33.7% | 9.9% | -48.5% .. 117.6% | 87.7% | 5 |
+| D1 | -1.541 .. -0.488 | 0.00 .. 0.10 | 0 .. 10 | 127 | 15.7% | -1.4% | 47.2% | 47.7% | 36.9% | 8.3% | -55.1% .. 107.0% | 86.5% | 5 |
+| P5 | -1.541 .. -0.728 | 0.00 .. 0.05 | 0 .. 5 | 63 | 12.8% | -3.5% | 46.0% | 45.3% | 34.9% | 8.3% | -55.3% .. 106.8% | 85.5% | 5 |
+| P1 | -1.541 .. -1.134 | 0.00 .. 0.01 | 0 .. 1 | 13 | 12.7% | -8.9% | 40.5% | 36.9% | 36.0% | 8.3% | -55.3% .. 106.8% | 76.9% | 5 |
+
+P1_COMP_EW: R-B
+
+| anchor | set | IC | CI90 (names) | n scored | coverage | D10-D1 | Q5-Q1 | Q5-Q1 net 12bps | Q5 excess net |
+|---|---|---|---|---|---|---|---|---|---|
+| 2019-06-28 | indicative | 0.095 | 0.039 .. 0.150 | 863 | 100.0% | -8.5% | 2.6% | 2.1% | 5.8% |
+| 2020-06-30 | counted | 0.003 | -0.054 .. 0.061 | 857 | 100.0% | 2.5% | -2.6% | -2.7% | 30.5% |
+| 2021-06-30 | counted | 0.025 | -0.023 .. 0.073 | 1172 | 100.0% | -3.0% | -5.3% | -5.6% | 6.4% |
+| 2022-06-30 | counted | 0.024 | -0.024 .. 0.071 | 1303 | 100.0% | 16.6% | 4.2% | 3.9% | 11.0% |
+| 2023-06-30 | counted | -0.001 | -0.046 .. 0.043 | 1409 | 100.0% | -10.8% | -12.1% | -12.4% | 17.1% |
+| 2024-06-28 | counted | 0.092 | 0.049 .. 0.135 | 1588 | 100.0% | -0.3% | 4.6% | 4.4% | 7.4% |
+
+P1_COMP_EW: R-C
+
+| anchor | Spearman(decile, mean ret) | P99>P95>D10>D9 | P1<P5<D1<D2 |
+|---|---|---|---|
+| 2020-06-30 | -0.200 | no | yes |
+| 2021-06-30 | -0.455 | yes | no |
+| 2022-06-30 | -0.212 | no | yes |
+| 2023-06-30 | -0.176 | no | no |
+| 2024-06-28 | 0.455 | no | no |
+| count of 5 | -0.118 | 1 | 2 |
+
+RF_GLOBAL: R-A nested
+
+| bucket | score range (latest) | p range | IS range | mean n | mean excess | median excess | hit | beat N500 | beat EW | alpha_iso (latest) | 80% band (latest) | coverage | anchors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| P99 | 0.417 .. 0.582 | 0.99 .. 1.00 | 99 .. 100 | 13 | -1.8% | -15.3% | 38.0% | 33.9% | 20.6% | 10.1% | -41.0% .. 113.1% | 88.7% | 5 |
+| P95 | 0.321 .. 0.582 | 0.95 .. 1.00 | 95 .. 100 | 63 | 3.5% | -10.0% | 41.8% | 39.2% | 27.6% | 10.1% | -41.0% .. 113.1% | 86.1% | 5 |
+| D10 | 0.255 .. 0.582 | 0.90 .. 1.00 | 90 .. 100 | 127 | 13.1% | -3.8% | 47.6% | 47.1% | 33.6% | 10.1% | -41.0% .. 113.1% | 85.3% | 5 |
+| D9 | 0.164 .. 0.255 | 0.80 .. 0.90 | 80 .. 90 | 127 | 12.7% | 0.1% | 50.9% | 49.7% | 37.1% | 10.1% | -41.9% .. 104.2% | 85.2% | 5 |
+| D8 | 0.103 .. 0.164 | 0.70 .. 0.80 | 70 .. 80 | 127 | 14.6% | 0.4% | 50.5% | 51.4% | 38.6% | 10.1% | -47.7% .. 105.0% | 88.8% | 5 |
+| D7 | 0.053 .. 0.102 | 0.60 .. 0.70 | 60 .. 70 | 127 | 19.0% | 3.6% | 51.9% | 50.1% | 40.0% | 10.1% | -47.0% .. 108.5% | 87.8% | 5 |
+| D6 | -0.002 .. 0.053 | 0.50 .. 0.60 | 50 .. 60 | 127 | 21.0% | 5.2% | 53.4% | 52.6% | 39.7% | 10.1% | -42.4% .. 101.9% | 88.7% | 5 |
+| D5 | -0.052 .. -0.002 | 0.40 .. 0.50 | 40 .. 50 | 126 | 20.4% | 2.2% | 51.1% | 52.3% | 39.6% | 10.1% | -42.0% .. 89.0% | 88.9% | 5 |
+| D4 | -0.107 .. -0.052 | 0.30 .. 0.40 | 30 .. 40 | 127 | 12.3% | -2.2% | 47.1% | 46.7% | 34.5% | 9.1% | -50.3% .. 94.1% | 86.7% | 5 |
+| D3 | -0.163 .. -0.108 | 0.20 .. 0.30 | 20 .. 30 | 127 | 20.4% | -3.8% | 45.5% | 47.4% | 37.5% | 9.1% | -44.4% .. 106.8% | 88.6% | 5 |
+| D2 | -0.258 .. -0.165 | 0.10 .. 0.20 | 10 .. 20 | 127 | 11.3% | -3.4% | 44.5% | 46.2% | 34.0% | 9.1% | -56.8% .. 87.7% | 87.9% | 5 |
+| D1 | -0.661 .. -0.259 | 0.00 .. 0.10 | 0 .. 10 | 127 | 24.1% | 8.6% | 53.3% | 53.5% | 43.4% | 9.1% | -47.7% .. 108.6% | 88.2% | 5 |
+| P5 | -0.661 .. -0.341 | 0.00 .. 0.05 | 0 .. 5 | 63 | 31.8% | 17.0% | 59.9% | 60.9% | 51.1% | 9.1% | -47.7% .. 108.6% | 91.4% | 5 |
+| P1 | -0.661 .. -0.460 | 0.00 .. 0.01 | 0 .. 1 | 13 | 33.0% | 17.4% | 64.5% | 63.4% | 56.4% | 9.1% | -47.7% .. 108.6% | 91.2% | 5 |
+
+RF_GLOBAL: R-B
+
+| anchor | set | IC | CI90 (names) | n scored | coverage | D10-D1 | Q5-Q1 | Q5-Q1 net 12bps | Q5 excess net |
+|---|---|---|---|---|---|---|---|---|---|
+| 2019-06-28 | indicative | 0.200 | 0.144 .. 0.255 | 863 | 100.0% | 10.1% | 9.3% | 8.8% | 10.5% |
+| 2020-06-30 | counted | -0.176 | -0.231 .. -0.121 | 857 | 100.0% | -70.1% | -48.7% | -48.9% | -2.7% |
+| 2021-06-30 | counted | 0.050 | 0.001 .. 0.099 | 1172 | 100.0% | -0.4% | -3.1% | -3.4% | 5.0% |
+| 2022-06-30 | counted | -0.008 | -0.054 .. 0.039 | 1303 | 100.0% | -8.9% | 0.7% | 0.4% | 16.0% |
+| 2023-06-30 | counted | 0.138 | 0.094 .. 0.182 | 1409 | 100.0% | 20.2% | 26.3% | 25.9% | 40.0% |
+| 2024-06-28 | counted | 0.010 | -0.032 .. 0.051 | 1588 | 100.0% | 3.8% | 0.5% | 0.3% | 5.5% |
+
+RF_GLOBAL: R-C
+
+| anchor | Spearman(decile, mean ret) | P99>P95>D10>D9 | P1<P5<D1<D2 |
+|---|---|---|---|
+| 2020-06-30 | -0.818 | no | no |
+| 2021-06-30 | -0.079 | no | no |
+| 2022-06-30 | 0.382 | no | no |
+| 2023-06-30 | 0.709 | no | no |
+| 2024-06-28 | -0.091 | no | no |
+| count of 5 | 0.021 | 0 | 0 |
+
+
+### Acceptance
+| item | result |
+|---|---|
+| all runnable trials ok/failed | 48 ok, 0 failed; #44-#45 left `registered` by design |
+| `wf_result` + `oos_prediction` for 2019 (indicative) and 2020-2024 | yes (282 / 336,180 rows) |
+| CPCV 36 splits for every runnable trial | yes (window variants copy their base: 3 trials) |
+| DSR, PBO, 90/10 printed; gates evaluated | yes; champion P1_UNIFIED_XS; composite baseline ships |
+| T-02 future-poison scores, Jun-2021 | pass: inflate / nan / shuffle poison of everything with `available_from` > 2021-06-30; universe (with the feature-complete hook), fundamental + technical + regime features, R1, fit and score all rebuilt from the poisoned store; frames identical (`check_exact`); scores bit-identical for RF_GLOBAL, RF_GLOBAL_EXT, P1_COMP_EW; RIDGE_GLOBAL agrees to 1e-12 with identical ranking (differs by ~1e-16 between two calls on identical inputs: BLAS summation depends on array alignment, so the Ridge assertion is `allclose`, not bitwise); positive control (poison 900 days earlier) changes the inputs |
+| T-26 | green with the bake-off entry points wired in (the test source contains 2025 anchors that never reach a fit, a score call or the loader) |
+| T-04 (shuffled labels, every learner) | E1's synthetic test; unchanged |
+| runtime | fit time within the card (WFO 283 s, CPCV 53 min); wall 128 min (see above) |
+| `uv run ruff check .` | clean |
+| `uv run pytest -m "not lake"` | **563 passed**, 1 xfailed, 1 xpassed (E1 documented), 125 s |
+| `uv run pytest -m lake` | **106 passed** (incl. T-02, 4 tests), 545 s |
+| `uv run python scripts/secret_scan.py --all` | clean |
+
+### Deviations from 05 and why
+- **Wall time** over the card (above). **Importance repeats 5, not 20** (02 §6.5): 20 repeats would have made SVR the dominant cost (about 1 h per SVR trial); the stability term is 10% of the
+  selection score and the champion's lead is 0.9 x IC. The value is in the hashed protocol block.
+- **Window variants** have a copied CPCV (above); `P1_WFO_3Y` / `P1_WFO_2Y` have empty folds (selection found nothing, score NaN): 2 of 6 and 4 of 6 folds, reported, not relaxed.
+  Their R-D means are over the non-empty counted folds and an empty fold counts as not positive.
+- **G2 bias** and the **adversarial remedy** (above). H (Friedman) and ALE audits were not run; the OOD share is reported for the focus trials only.
+- **U1000** and the **momentum set** are my readings (above); both are in the hashed config.
+- **The lgbm/xgb weak-signal attenuation** (E1 T-05) is not fixed and not visible separately here: all boosters are near 0 like every other learner.
+- MLP hits `max_iter=50` without converging (ConvergenceWarning recorded per trial; not suppressed); SVR subsamples to 6,000 rows by design.
+- Test change outside MS1: `tests/lake/test_e1_ddl.py::test_register_then_train_guard` assumed an empty trial registry; with 1Y-june registered live it now counts inserted + already-present
+  (still inside the rolled-back sandbox).
+- `results_dir` moved from `<data>/<snap>/results` to `<data>/bakeoff/<snap>/results` during the run (a symlink bridged the live process; the directory was renamed after it exited).
+
+### Risks
+- **Five counted annual tests** cannot support DSR >= 0.90 for any realistic signal; the pre-registered expectation in 05 §3.7 held. Jun-2020 (COVID rebound) is one year and decides the sign of every learner's mean.
+- Anything selected on these 5 years (P1_UNIFIED_XS, the VALUE composite) is optimistic. The **holdout (Jun-2025) is still sealed**; re-selecting after unsealing requires a new family.
+- The adversarial BLOCK applies to the baseline and to every model sharing the R1 core matrix: the inputs themselves drift (growth-feature coverage by year), not just the learners.
+- Sector/industry labels, the stock-to-company link and listing dates are today's (P1/P2 residual bias); text and vendor features are not in any trial here.
+- Live-state footprint: 50 `experiment_trial` rows, 2 train runs (262 smoke, 263 full), 48 `model` rows, 282 `wf_result`, 336,180 `oos_prediction`, 5,880 `rank_calibration` rows. The orchestrator
+  should re-run `ideation backtest report --leakage-green` on `main` after merge only if the snapshot changes; results are keyed by config hash and snapshot.
+- MS1-text still owes #44-#45; `N` stays 50.

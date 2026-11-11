@@ -21,6 +21,26 @@ defaults:
   train_window: {kind: rolling, n: 3}
   target: rank_gauss_ret_total
   ninety_ten_sec: false          # 90/10 reading (a), 05 §11
+  # Explicit feature sets (resolved from the registry at registration time so the hash covers the column lists).
+  # core = every `set: core` column of config/features_fundamental.yaml (25). core_ext = core + log mcap (`size`) +
+  # rvol_63 + beta_252 + the 17 broadcast regime columns (05 §3.5 #33). core_mom = core + the 20 price-momentum /
+  # reversal / relative-strength / trend / breakout columns of 01 §2.5 (category momentum, reversal, relative_strength,
+  # trend, breakout of `set: tech`). core_text = core + the 11 PT2 text columns (trials 44-45, run later by MS1-text).
+  feature_sets:
+    core: {base: core, add: []}
+    core_ext: {base: core, add: [size, rvol_63, beta_252, regime_pct_above_200dma, regime_pct_above_50dma, regime_ad_ratio_20d, regime_nh_nl_20d, regime_div_6m, regime_pct_beating_6m, regime_vix, regime_vix_pct_3y, regime_vix_chg_1m, regime_n500_ma200_gap, regime_n500_ma200_slope_63d, regime_n500_dd_252, regime_cpi_yoy, regime_iip_yoy, regime_usdinr_3m, regime_wti_3m, regime_us10y_3m_bp]}
+    core_mom: {base: core, add: [mom_1m, mom_3m, mom_6m, mom_12_1, rev_5d, rs_grp_3m, rs_grp_6m, rs_n500_3m, rs_n500_6m, dist_52wh, dist_52wl, brk_1y, brk_2y, brk_3_4y, brkdn_1y, brkdn_2y, brkdn_3_4y, ma200_gap, ma50_200, id_frog]}
+    core_text: {base: core, add: [d_tone, d_guide, d_unc, tone_lvl, guide_lvl, gdn_r, capex_r, qa_tone, qa_minus_prep, ppt_d_guide, ppt_capex_r]}
+  # Universe rules on ideation.universe_member (05 §1.1, 03 §C4). U1000 = the top-1000-by-ADV slice of U_score
+  # (a name needs a company and fundamentals to be scored, so U1000 outside U_score cannot be scored).
+  universe_rules:
+    U_score: {all: [in_u_score]}
+    U_score_adv05: {all: [in_u_score_adv05]}
+    U1000: {all: [in_u_score, in_u1000]}
+  protocol:
+    cpcv: {n_groups: 9, k: 2, embargo: 1, anchors: "2016..2024"}
+    wfo: {first_anchor: 2016, importance_repeats: 5, importance_seed: 0}
+    bootstrap: {n_boot: 10000, seed: 0}
 
 consensus_members: [RF_GLOBAL, PRIDGE_GLOBAL, RIDGE_GLOBAL, LGBM_GLOBAL, XGB_GLOBAL, MLP_GLOBAL, SVR_GLOBAL,
                     OLS_GLOBAL, SCR_GLOBAL, P1_COMP_DOSSIER]

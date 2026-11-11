@@ -176,22 +176,22 @@ def regime_cmd(
         RunRegistry(conn).track("regime", config_hash=meth.config_hash, snap_id=store.snap_id,
                                 params={"as_of": str(anchor)}, force=True) as run,
     ):  # fmt: skip
-            metrics = {k: (None if pd.isna(v) else float(v)) for k, v in res.regime.items()}
-            conn.execute(
-                "insert into ideation.regime_snapshot (as_of, run_id, metrics, labels) values (%s, %s, %s, %s) "
-                "on conflict (as_of) do update set run_id = excluded.run_id, metrics = excluded.metrics, "
-                "labels = excluded.labels",
-                (anchor, run.run_id, json.dumps(metrics), json.dumps(res.labels)),
-            )
-            conn.execute("delete from ideation.sector_rotation where as_of = %s", (anchor,))
-            conn.copy_rows(
+        metrics = {k: (None if pd.isna(v) else float(v)) for k, v in res.regime.items()}
+        conn.execute(
+            "insert into ideation.regime_snapshot (as_of, run_id, metrics, labels) values (%s, %s, %s, %s) "
+            "on conflict (as_of) do update set run_id = excluded.run_id, metrics = excluded.metrics, "
+            "labels = excluded.labels",
+            (anchor, run.run_id, json.dumps(metrics), json.dumps(res.labels)),
+        )
+        conn.execute("delete from ideation.sector_rotation where as_of = %s", (anchor,))
+        conn.copy_rows(
                 "ideation.sector_rotation",
                 ["as_of", "group_type", "group_code", "rs_ratio", "rs_mom", "quadrant", "n_members", "run_id"],
                 ((anchor, r.group_type, r.group_code, None if pd.isna(r.rs_ratio) else float(r.rs_ratio),
                   None if pd.isna(r.rs_mom) else float(r.rs_mom), r.quadrant,
                   None if pd.isna(r.n_members) else int(r.n_members), run.run_id) for r in res.rrg.itertuples()),
             )  # fmt: skip
-            run.stats.update({"as_of": str(anchor), "rrg_rows": len(res.rrg)})
+        run.stats.update({"as_of": str(anchor), "rrg_rows": len(res.rrg)})
     console.print("[green]regime_snapshot and sector_rotation written[/green]")
 
 

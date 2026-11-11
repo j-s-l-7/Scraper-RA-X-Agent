@@ -320,7 +320,7 @@ def table_rb(t: TD) -> pd.DataFrame:
                 "set": "counted" if a in set(t.counted) else "indicative",
                 "IC": f(r["ic"]),
                 "CI90 (names)": f"{f(r['ic_lo'])} .. {f(r['ic_hi'])}",
-                "n scored": r["n_scored"],
+                "n scored": int(r["n_scored"]),
                 "coverage": f(r["coverage"], pct=True),
                 "D10-D1": f(r["spread_d10_d1"], pct=True),
                 "Q5-Q1": f(r["spread_q5_q1"], pct=True),

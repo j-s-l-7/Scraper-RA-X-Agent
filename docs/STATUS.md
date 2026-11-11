@@ -11,7 +11,7 @@
 | P3 technical / regime / RRG / events | done (merged to `main`) | see "P3" below |
 | PT2 text PIT features + vendor gate | done (merged to `main`) | see "PT2" below |
 | Outcomes (05 §5, moved to MS1-text) | done on branch `phase-outcomes`, not merged | see "Outcomes" below |
-| PT3 annual-report text | planned after MS3 | 05 §12 |
+| PT3 annual-report text + multi-call trends | done on branch `phase-pt3-annual-reports`, not merged (challenger result: no evidence of value) | see "PT3" below |
 
 ## Phase 0
 
@@ -1718,6 +1718,157 @@ Plain reading: text beats the matched control, but that control is trained on on
 ### Deviations / risks
 - The covered subset is survivor-only and size-biased (larger caps first); the first training folds hold 426 and 550 rows.
 - Control arms are not trials; the pairing statistic is exploratory.
+
+## PT3: annual-report text features and multi-call text trends (branch `phase-pt3-annual-reports`, worktree `../wt-pt3`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`. No migration (020-029 unused); `ideation init-db` never run from the worktree. Not merged.
+Nothing is written to `equity`/`macro`; no text content is stored (only rates, flags and dates); labels only through `load_labels`
+(`unsealed_only`); the 2025 holdout was not touched. **N for the 1Y family goes 50 -> 53** (three challengers registered before any fit).
+
+### Headline (read this first)
+- **The annual-report text and the multi-call trends do not help.** Against the harder comparison (the full-universe model restricted to the
+  same names) all three challengers are indistinguishable from zero: SCR_GLOBAL_AR -0.002 [-0.015, +0.007], RF_GLOBAL_AR +0.003 [-0.011, +0.014],
+  SCR_GLOBAL_TREND -0.005 [-0.019, +0.010] (mean paired delta IC over the 5 counted anchors 2020-2024, CI90, iid bootstrap over anchors).
+  Against the matched control they are -0.005 / +0.004 / -0.001, equally null. Unlike MS1-text, the annual block has no "win over a starved control"
+  to over-read: coverage is 92-95% of U_score, so the control is the ordinary core model on ~830-1,500 names.
+- The deflation barely moves: the 90/10 champion P1_UNIFIED_XS has DSR 0.813 at N = 50 and 0.806 at N = 53 (gate 4 still fails, needs 0.90).
+- Nothing enters Resurrection. The extraction and the PIT features are shipped as infrastructure (cheap, leakage-tested); the trials are
+  challengers that lost.
+
+### What was built
+- `ideation/text/annual.py` + `ideation/text/lexicon_ar.py` (`LEX_AR_V1`: LEX_V1 pos/neg/unc/lit word sets plus own `risk` and `dist` sets and the
+  auditor-report regexes; 454 tone terms, hash in the cache key; no licensed dictionary). `ANNUAL_CATALOG` NamedQuery (`equity.document`,
+  `doc_type = 'annual_report'`, sources = that table only). CLI `ideation text annual [--workers 4] [--no-cache] [--limit N] [--lag 180]`.
+- Per report: section detection by heading lines (MD&A; Independent Auditor's Report(s), up to 3 spans; related-party and contingent-liability
+  notes), tokens/rates per 1,000 tokens on the MD&A (`mda_tone_net, pos_r, neg_r, unc_r, lit_r, risk_r, dist_r`, negation within 3 tokens flips pos/neg,
+  safe-harbour sentences dropped), auditor flags on the auditor spans (`aud_qual` = qualified/adverse/disclaimer, `aud_eom`, `aud_gc` = going-concern
+  heading, `aud_kam`, `aud_kam_n` proxy, `aud_flag` = qual + eom + gc, 0-3), document-wide `rpt_r` / `cl_r` (mentions of related parties / contingent
+  liabilities per 1,000 words) and note-size shares. A section that is not found is NaN (`mda_ok` / `aud_ok` = 0), never filled. Table-of-contents
+  hits are rejected (MD&A needs >= 4 section words in the 3,000 characters after the heading; an auditor span needs "we have audited / true and fair").
+- Doc-quality filter (`doc_ok`): >= 8,000 words, garble rate (non-ASCII characters other than common punctuation) <= 2%, lone-letter fragment rate <= 25%.
+- Availability (conservative): `available_from = max(FY end + 180 d, parsed date + 1)`, parsed date = the later of the cover-letter date on pages 1-2
+  (accepted in [FY end + 30 d, + 540 d]) and the AGM date of "Notice is hereby given ... will be held on" (accepted in [FY end + 60 d, + 540 d]).
+  FY end = the later of the label-based end (`fiscal_year`, FY month from the snapshot's `financial_fact`, else March) and the most frequent
+  "year ended <date>" date (>= 2 occurrences, within [label - 400 d, label + 366 d]; later is the conservative direction).
+  Availability is computed after the cache, so changing the lag re-runs in seconds (warm 13.6 s).
+- `PitStore` serves the output as dataset `annual_docs` (`PitView.annual_docs`; same guard and `poison_after` as `text_docs`; `fy_end`, `agm_date`,
+  `parsed_date` are cast to dates). `ideation/features/annual_text.py` + `config/features_annual_text.yaml` (set `annual`, `complete: false`):
+  `ar_tone, ar_unc, ar_aud, ar_rpt, ar_cl` (levels from `cur`) and `d_ar_*` (cur - prev), `_rg` copies, flags `isna_ar`, `isna_ar_prev`.
+  `cur` = latest visible quality-OK report with `fy_end` >= A - 600 d; `prev` = the visible report whose `fy_end` is 300-430 d earlier. No fill.
+- Multi-call trends in the existing text module (`ideation/features/text.py::build_text_trend`) with `config/features_text_trend.yaml` (set `text_trend`):
+  `tone_slope4`, `guide_slope4` (OLS slope per year of tone_net / guide_net over the last 4 visible transcripts in the last 800 days, needs >= 3),
+  `impr_streak` (consecutive improving tone_net steps from the latest call), flag `isna_trend`. A separate file, so `features_text.parquet` and
+  trials #44-45 are untouched.
+- CLI `ideation text pt3-features [--anchors june,march,monthly]` (outputs `features_annual_text.parquet`, `features_text_trend.parquet` + coverage
+  parquets under `outputs/<snap>/`, run kind `features_annual_text`, manifests). Bake-off: `bakeoff/data.py` (`attach_annual`, `attach_trend`,
+  `SUBSET_FLAG`: `annual_covered` / `trend_covered` cut before R1), `bakeoff/pt3.py` (paired report, DSR at the new N), `train --pt3`, `backtest pt3`.
+  `EXPECTED_N["1Y-june"]` = 53 in `report/store.py`.
+- Tests: `tests/unit/test_annual_text.py` (12: sections/flags/dates, NaN-not-filled, quality filter, TOC rejection, **T-24-style availability**,
+  cur/prev windows and no fill, synthetic **future-poison** for annual and trend features, guard, empty anchor), `tests/lake/test_pt3_annual.py` (6:
+  **lake future-poison via PitStore** for annual at 3 anchors and trends at 2, real-table availability invariants), `test_trials.py` pins the digest of
+  the 50 frozen hashes, `test_text_static.py` allows `to_parquet`/`mkdir` in `annual.py`.
+
+### Commands and runtimes
+| command | result | wall |
+|---|---|---|
+| `nice -n 10 uv run ideation text annual --no-cache` (cold, 4 workers, shared Mac) | 29,375 reports after dedupe, 29,331 read + extracted, 56 unreadable | **1,258 s (21.0 min; limit 30)** |
+| `uv run ideation text annual` (warm) | all from cache; availability recomputed | 13.6 s |
+| `uv run ideation text pt3-features --anchors june,march` | 33 anchors, 45,430 rows | 26 s |
+| `uv run ideation trials register --family 1Y-june` (2026-11-11 09:11:59, before any fit) | 3 new (trial_id 3476-3478), 50 present, **N = 53** | 2 s |
+| `nice -n 10 uv run ideation train --horizon 1y --bakeoff --cpcv --pt3` (run 353) | 6 arms (3 trials + 3 controls), WFO 2019-2024 + 36-split CPCV | 606 s |
+| `nice -n 10 uv run ideation backtest pt3` | paired statistics, DSR block, persistence of #51-53 (`experiment_trial` ok, `model`, `wf_result`, `oos_prediction`, `rank_calibration`) | 42 s |
+Report: `~/Ideation-data/reports/pt3/PT3_20261105-e33e7986.{md,json}`. The corpus is 29,376 `status = ok` rows / 2,560 companies (a few more than the 29,335 / 2,558
+in 05 §12; the lake grew), FY labels 1998-2026, 99% FY2012+; one (company, FY) duplicate dropped.
+
+### Extraction QA (all readable reports)
+| item | measured |
+|---|---|
+| `doc_ok` (quality filter) | 96.4% |
+| MD&A found with >= 300 tokens | 80.8% (usable with `doc_ok` 79.9%); rises from 69% (FY2012) to 88% (FY2026) |
+| auditor report found | 90.0% (88.7% with `doc_ok`) |
+| cover-letter filing date parsed | 64.5% (31% for FY2012-17, 80-92% for FY2020+) |
+| AGM date parsed from the notice | 78.5% |
+| either parsed | 87.8% |
+| basis of `available_from` | fixed lag 73.4%; cover-letter date 2.5%; AGM date 24.1% |
+| FY end taken from text (later than label) | 2.5% |
+| `available_from` later than FY end + 180 d | 26.6%; later than FY end + 275 d: 0.4% |
+| auditor flags by FY | qualified 8-11% (FY2013-FY2025), emphasis of matter 17-28% with spikes of **43.6% in FY2020 and 37.0% in FY2021** (Covid), going-concern heading 3-5% since FY2019 |
+| mean MD&A tone_net by FY | 0.39-0.58 for FY2013-FY2025 outside the Covid years, **0.32 in FY2020** and 0.39 in FY2021, 0.64 in FY2026 |
+The FY2020 dip in MD&A tone and the FY2020 emphasis-of-matter spike are the same external sanity check PT1 used on calls (2020-Q1).
+The lag is binding for 73% of reports; the parsed filing/AGM dates only push availability later (26.6% of reports), they never pull it earlier.
+
+### Coverage on U_score per June anchor (share of the universe; `ar_*` = non-NaN after the section rules)
+| anchor | U_score | AR cur | AR cur+prev | ar_tone / ar_unc | ar_aud | ar_rpt / ar_cl | d_ar_tone | d_ar_aud | trend (>= 3 calls) |
+|---|---|---|---|---|---|---|---|---|---|
+| 2016-06-30 | 827 | 92.6% | 85.6% | 76.8% | 79.7% | 92.6% | 62.6% | 65.1% | 2.5% (21 names) |
+| 2017-06-30 | 921 | 95.0% | 88.2% | 80.3% | 87.4% | 95.0% | 67.5% | 72.1% | 13.7% |
+| 2018-06-29 | 942 | 94.1% | 88.9% | 79.5% | 87.4% | 94.1% | 68.5% | 78.1% | 19.1% |
+| 2019-06-28 | 863 | 95.5% | 89.6% | 80.9% | 89.5% | 95.5% | 70.6% | 79.1% | 23.9% |
+| 2020-06-30 | 857 | 95.1% | 90.9% | 82.4% | 91.4% | 95.1% | 71.9% | 82.8% | 27.9% |
+| 2021-06-30 | 1,172 | 95.4% | 91.1% | 83.6% | 90.5% | 95.4% | 74.0% | 83.8% | 25.3% |
+| 2022-06-30 | 1,303 | 94.1% | 88.2% | 83.3% | 90.9% | 94.1% | 74.3% | 82.4% | 32.8% |
+| 2023-06-30 | 1,409 | 94.7% | 88.1% | 85.2% | 91.1% | 94.7% | 73.7% | 82.8% | 48.0% |
+| 2024-06-28 | 1,588 | 95.0% | 89.1% | 84.9% | 91.1% | 95.0% | 76.1% | 82.7% | 51.5% |
+(The 2025 and 2026 June anchors are in the printed table of `pt3-features` but are not used by any trial; 2010-2015 anchors have tiny universes.) At a June anchor
+the current report is the FY ended 15 months earlier (March t-2, available from late September t-2 under the 180-day lag; the March t-1 report is available
+from late September t-1). The annual features are therefore stale by construction; that is the price of the conservative lag.
+
+### Trials (registered before any fit; 05 §12; fixed hyperparameters from `ideation/models/zoo.py`; no tuning)
+Learner rule fixed a priori and written in the YAML: global spec on the core columns, best learner within each class by mean counted IC in MS1-core.
+Linear: SCR_GLOBAL (0.0137) beats OLS_GLOBAL, RIDGE_GLOBAL, PRIDGE_GLOBAL; RF: RF_GLOBAL is the only global-core RF. (The 90/10 champion is a Phase-I
+composite, not a feature-matrix learner, so it cannot take extra columns.)
+| # | id | learner | features | covered subset | paired with |
+|---|---|---|---|---|---|
+| 51 | SCR_GLOBAL_AR | scr (alpha 10) | core + 10 annual columns | `isna_ar == 0` | SCR_GLOBAL |
+| 52 | RF_GLOBAL_AR | rf (500 trees, as RF_GLOBAL) | core + the same 10 | `isna_ar == 0` | RF_GLOBAL |
+| 53 | SCR_GLOBAL_TREND | scr (alpha 10) | core + 3 trend columns | `isna_trend == 0` (>= 3 calls) | SCR_GLOBAL |
+
+### Results (paired over the 5 counted anchors 2020-2024, iid bootstrap over anchors, 10,000 draws; "harder test" first)
+| trial | compared with | IC with features | IC other | delta | CI90 | P(delta>0) | years better |
+|---|---|---|---|---|---|---|---|
+| SCR_GLOBAL_AR | full-universe SCR_GLOBAL on the same names | 0.013 | 0.015 | -0.002 | -0.015 .. +0.007 | 0.38 | 4/5 |
+| SCR_GLOBAL_AR | matched control (core, same names) | 0.013 | 0.017 | -0.005 | -0.018 .. +0.003 | 0.33 | 4/5 |
+| RF_GLOBAL_AR | full-universe RF_GLOBAL on the same names | 0.004 | 0.001 | +0.003 | -0.011 .. +0.014 | 0.72 | 4/5 |
+| RF_GLOBAL_AR | matched control | 0.004 | 0.000 | +0.004 | -0.011 .. +0.012 | 0.74 | 4/5 |
+| SCR_GLOBAL_TREND | full-universe SCR_GLOBAL on the same names | 0.026 | 0.031 | -0.005 | -0.019 .. +0.010 | 0.30 | 2/5 |
+| SCR_GLOBAL_TREND | matched control | 0.026 | 0.027 | -0.001 | -0.022 .. +0.014 | 0.47 | 4/5 |
+CPCV (36 splits, robustness only): SCR_GLOBAL_AR 0.043 vs control 0.040; RF_GLOBAL_AR 0.037 vs 0.024; SCR_GLOBAL_TREND 0.023 vs 0.037. The 4/5
+"years better" for SCR_GLOBAL_AR are differences of 0.001-0.006 in four years offset by -0.033 in 2021; 2020 is about -0.11 for every arm (the 2020 rebound that defeats every
+learner trained on 2017-2019 is untouched by text). The trend trial's test folds hold 239-818 names (2020-2024) and its training folds start from 21-206 names (coverage 2.5-24% in 2016-2019).
+
+### Trial count and DSR re-evaluated
+N: 50 pre-registered + 3 PT3 = **53** (ledger `family_n` = 53; `EXPECTED_N` updated). Same Sharpe pool as `apply_family` (46 trials with >= 3 counted ICs), reproduced
+before use: **P1_UNIFIED_XS DSR 0.813 at N = 50 (SR0 1.087) -> 0.806 at N = 53 (SR0 1.097)**; variance of SR across the pool 0.228 (0.214 with the three PT3 trials). Gate 4 (>= 0.90)
+still fails. The PT3 trials' own DSR is 0.02-0.03 (SR of IC 0.04-0.23 against SR0 1.10): nothing survives the deflation, which is consistent with the null deltas.
+Selection, PBO and the other 50 trials' rows are untouched: PT3 trials are `subset` trials, so `apply_family` never sees them.
+
+### Acceptance
+ACCEPT_PLACEHOLDER
+
+### Deviations from the brief (and why)
+- **Trials live in the 1Y-june file (N = 53), not a new family**: the DSR must count them, `family_n` in the ledger and `EXPECTED_N` in the report now say 53. The 50 frozen
+  hashes are unchanged (pinned by a digest in `test_trials.py`); `feature_sets` is restated inside each new entry because editing the hashed `defaults` would have moved every hash.
+- "Best linear core spec" is read as SCR_GLOBAL (best learner-class linear model on the core columns), not the Phase-I composites (P1_UNIFIED_XS cannot take extra columns).
+  RF = RF_GLOBAL (the plain global RF, mean IC 0.003); RF_INDUSTRY / RF_HYBRID / RF_GLOBAL_TRAIN2Y have slightly higher IC (0.005-0.008) but are variants. Rule written in the YAML before registering.
+- The trend trial has little data early (21 names at the 2016 anchor, 126 in 2017): coverage was inspected before registering (not an outcome) and the trial kept, as the brief
+  allows exactly one; it is indicative only.
+- Cover-letter date: pages 1-2 only, with PT1's period-end/meeting-context skip; a wrong date can only push availability later (the lag is the floor), never earlier.
+- FY end: widened the text-parsed upper cap from +45 d to +366 d after review (a December-year-end company mislabelled as March would otherwise get an FY end before the period
+  closed); 2.5% of reports moved.
+- `aud_kam_n` is a proxy (count of audit-procedure phrases, capped at 20) and is not used by any feature; `aud_flag` weights qualified, emphasis of matter and the going-concern
+  heading equally (0-3).
+- No text-embedding challenger (the brief: none in this phase).
+
+### Risks
+- Heading-based section detection is heuristic: MD&A found in 80.8% and the auditor report in 90% of readable reports; failures are NaN (no fill), not noise, but the missingness
+  correlates with report format (older and smaller companies), so `ar_tone` is covered more for large, recent filers.
+- The conservative 180-day lag makes every annual feature 15 months old at a June anchor. A shorter lag (~120-150 d; the median cover-letter date is ~150 d after FY end among
+  reports where it parses) would be fresher, but the choice was fixed a priori and a lag sweep would be a new look at the data; not tested.
+- `aud_flag` mixes three events of different severity and its sign prior (-) is assumed; the Covid emphasis-of-matter wave (43.6% of FY2020 reports) makes `d_ar_aud` a macro
+  dummy at the June-2021 and June-2022 anchors. A per-anchor rank-gauss does not remove a level that is common to all names but the delta is cross-sectionally noisy.
+- Five counted anchors, one of which (2020) dominates every learner's mean: the paired tests cannot resolve differences below ~0.02 IC. The result is "no evidence of an effect", not
+  "evidence of no effect".
+- Not run: sector/size-neutral versions, per-feature univariate tests, lag sensitivity. Adding them would be new trials/looks and would raise N further.
 
 ## MS3: research report (branch `phase-ms3-research-report`)
 

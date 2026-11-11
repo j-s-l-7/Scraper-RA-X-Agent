@@ -197,5 +197,5 @@ def pt3_cmd(
     tspecs = [s for s in specs if s.config.get("subset") in PT3_SUBSETS]
     with Writer.from_settings(settings).connect() as conn:
         ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in tspecs}
-    panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in tspecs}, reg, with_pt3=True)
+    panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in specs}, reg, with_pt3=True)
     pt3_report(settings, family, snap_id, None, specs, panels, ids, persist=persist)

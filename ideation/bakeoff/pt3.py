@@ -55,7 +55,7 @@ def dsr_block(specs: list[TrialSpec], panels: dict[str, Panel], root: Path, res:
     for k, td in tds.items():
         ic = TX._ic_series(td.oos, td.counted)
         ic = ic[ic.index.isin(td.counted)]
-        if len(ic.dropna()) >= 3:
+        if len(ic) >= 3:  # apply_family counts NaN entries here; sharpe_of then drops them
             pool[k] = ic
     arr = np.array([v for v in (RP.sharpe_of(s) for s in pool.values()) if v == v])
     n_all = len(specs)

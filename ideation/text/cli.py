@@ -21,7 +21,7 @@ from rich.table import Table
 from ideation.config import get_settings
 from ideation.lake import queries as Q
 from ideation.lake.adapter import LakeMode, LakeReader
-from ideation.text import extract
+from ideation.text import annual, extract
 from ideation.text import lexicon as lex
 
 app = typer.Typer(no_args_is_help=True, help="Text extraction from concall transcripts and presentations.")
@@ -113,6 +113,60 @@ def extract_cmd(
     tt = extract.tone_table(t)
     tt = tt[tt["q"] >= "2018Q1"]
     _print_df("tone by quarter discussed (transcripts; d_tone vs the latest call 60-400 days earlier)", tt)
+    console.print(f"output: {stats['out_path']}{' (not written: --limit)' if limit else ''}; {elapsed:.1f} s")
+
+
+@app.command("annual")
+def annual_cmd(
+    workers: Annotated[int, typer.Option(help="Worker processes.")] = 4,
+    no_cache: Annotated[bool, typer.Option("--no-cache", help="Ignore and rebuild the extraction cache.")] = False,
+    limit: Annotated[int | None, typer.Option(help="Smoke test: first N deduped reports; writes no output file.")] = None,
+    lag: Annotated[int, typer.Option(help="Fixed availability lag after the fiscal-year end (days).")] = annual.AVAIL_LAG_DAYS,
+) -> None:
+    """PT3: extract annual-report sections and features (LEX_AR_V1), parse availability, write the parquet."""
+    settings = get_settings()
+    t0 = time.perf_counter()
+    reader = LakeReader.from_settings(settings, LakeMode.BACKTEST)
+    with reader.snapshot() as s:
+        catalog = s.copy_pandas(Q.ANNUAL_CATALOG)
+    df, stats = annual.build(
+        catalog,
+        documents_root=settings.documents_root,
+        out_dir=settings.data_dir / "text",
+        fy_months=_fy_months(settings.data_dir),
+        workers=workers,
+        use_cache=not no_cache,
+        limit=limit,
+        lag=lag,
+        progress=lambda i, n: console.print(f"  extracted {i:,}/{n:,}"),
+    )
+    elapsed = time.perf_counter() - t0
+    console.print(
+        f"catalog rows {stats['catalog_rows']:,}; duplicates dropped {stats['dropped_dupes']:,}; reports after dedupe "
+        f"{stats['deduped']:,}; extracted {stats['extracted']:,}, from cache {stats['from_cache']:,}; unreadable "
+        f"{stats['unreadable']:,}; {annual.lx.LEX_AR_V1} ({annual.lx.term_count()} terms, {annual.lx.lexicon_hash()})"
+    )
+    ok = df[df["read_ok"] == True]  # noqa: E712
+    pr = annual.parse_rates(df)
+    console.print(
+        f"availability (lag {lag} d after FY end, later of parsed date and lag): cover-letter filing date parsed "
+        f"{pr['filed_parsed']:.1%}, AGM date parsed {pr['agm_parsed']:.1%}, either {pr['either_parsed']:.1%}; basis of "
+        f"available_from: lag {pr['basis_lag']:.1%}, filed {pr['basis_filed']:.1%}, agm {pr['basis_agm']:.1%}; FY end taken "
+        f"from text {pr['fy_end_from_text']:.1%} (n={int(pr['n']):,})"
+    )
+    q = ok[["n_words", "garble_rate", "frag_rate"]].quantile([0.01, 0.05, 0.5, 0.95, 0.99]).reset_index()
+    _print_df("document quality quantiles (filter: words >= %d, garble <= %.2f, frag <= %.2f)"
+              % (annual.MIN_WORDS, annual.MAX_GARBLE, annual.MAX_FRAG), q, {"n_words": "{:,.0f}"})
+    console.print(
+        f"doc_ok {ok['doc_ok'].mean():.1%}; mda_ok {ok['mda_ok'].mean():.1%}; aud_ok {ok['aud_ok'].mean():.1%}; "
+        f"usable (doc_ok & section) mda {((ok['doc_ok'] == 1) & (ok['mda_ok'] == 1)).mean():.1%}, aud "
+        f"{((ok['doc_ok'] == 1) & (ok['aud_ok'] == 1)).mean():.1%}"
+    )
+    _print_df(
+        "coverage by fiscal year (shares of readable reports)",
+        annual.coverage_by_fy(df),
+        {c: "{:.1%}" for c in ("doc_ok", "mda_ok", "aud_ok", "filed", "agm", "qual", "eom", "gc")},
+    )
     console.print(f"output: {stats['out_path']}{' (not written: --limit)' if limit else ''}; {elapsed:.1f} s")
 
 

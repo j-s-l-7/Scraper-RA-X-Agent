@@ -397,3 +397,25 @@ DOCUMENTS_CATALOG = NamedQuery(
         "text_path": _S,
     },
 )
+
+ANNUAL_CATALOG = NamedQuery(
+    "annual_catalog",
+    "select company_id, doc_type, period_label, fiscal_year, doc_date, source, fetch_source, page_count, char_count,"
+    " pdf_sha256, text_path from equity.document where status = 'ok' and doc_type = 'annual_report'",
+    sources=("equity.document",),
+    doc="Extracted annual reports (05 §12 item 2, PT3; ~29k rows, one scan, < 1 s). doc_date is NULL, only fiscal_year "
+    "is known. Reads no ban-listed source.",
+    arrow_types={
+        "company_id": _I,
+        "doc_type": _S,
+        "period_label": _S,
+        "fiscal_year": _I,
+        "doc_date": _D,
+        "source": _S,
+        "fetch_source": _S,
+        "page_count": _I,
+        "char_count": _I,
+        "pdf_sha256": _S,
+        "text_path": _S,
+    },
+)

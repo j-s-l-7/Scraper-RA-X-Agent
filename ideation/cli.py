@@ -27,6 +27,7 @@ def _register_subapps() -> None:
     from ideation.features.tech_cli import app as features_tech_app
     from ideation.labels.cli import app as labels_app
     from ideation.outcomes.cli import app as outcomes_app
+    from ideation.predict.cli import app as predict_app
     from ideation.report.cli import holdout_app, report_app
     from ideation.tactical.cli import app as tactical_app
     from ideation.text.cli import app as text_app
@@ -43,6 +44,7 @@ def _register_subapps() -> None:
     app.add_typer(outcomes_app, name="outcomes")
     app.add_typer(report_app, name="report")
     app.add_typer(holdout_app, name="holdout")
+    app.add_typer(predict_app, name="predict")
 
 
 _register_subapps()

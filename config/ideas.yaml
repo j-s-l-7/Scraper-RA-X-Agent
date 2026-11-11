@@ -1,0 +1,16 @@
+# P6 ideas engine (01 §5, 05 §7.4). Idea-stage filters and list sizes; ranking is the shipped model's score only.
+top_n: 25                  # long ideas per horizon
+avoid_n: 15                # avoid list: worst scores among liquid names in the bottom decile
+max_per_group: 5           # max long ideas per industry_group
+min_mcap_cr: 500           # idea stage (03 / 05 O1)
+min_adv_cr: 2.0            # ADV20, rupees crore
+min_price: 20.0
+min_completeness: 0.6      # feature completeness (1Y: feature_complete; 3M: share of non-missing T0 columns)
+series: [EQ]
+llm:
+  env_key: OPENAI_API_KEY  # read from the environment only, never from a file
+  env_model: OPENAI_MODEL
+  default_model: gpt-5.5
+  max_names: 25
+  excerpt_chars: 6000
+  timeout_s: 60

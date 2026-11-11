@@ -57,7 +57,8 @@ def market_columns(view: PitView) -> pd.DataFrame:
     sessions = view.sessions(ADV20)
     adv = raw.groupby("security_id")["turnover_lacs"].sum() / len(sessions) / LAKH_PER_CR
     out = pd.DataFrame({"last_close": last["close"], "series": last["series"], "adv20_cr": adv})
-    adj = view.prices_adj(COOLING_SESSIONS + 3)[["security_id", "date", "close_adj"]].sort_values(["security_id", "date"])
+    adj = view.prices_adj(50)[["security_id", "date", "close_adj"]].sort_values(["security_id", "date"])
+    out["sma50"] = adj.groupby("security_id")["close_adj"].apply(lambda s: float(s.tail(50).mean()) if len(s) >= 40 else np.nan)
     adj["r"] = adj.groupby("security_id")["close_adj"].pct_change()
     recent = adj[adj["date"].isin(set(view.sessions(COOLING_SESSIONS).astype("datetime64[D]").astype(object)))]
     out["max_abs_ret_7d"] = recent.groupby("security_id")["r"].apply(lambda s: float(np.nanmax(np.abs(s))) if s.notna().any() else np.nan)
@@ -116,8 +117,8 @@ def frame_3m(live: LiveData) -> pd.DataFrame:
 
 def security_info(live: LiveData) -> pd.DataFrame:
     """symbol / company / group / layout / price / ADV20 per security, for the ideas stage."""
-    m = live.members[["security_id", "symbol", "company_id", "mcap_pit_cr", "adv63_lakh", "feature_complete"]].copy()
-    f = live.fund[["security_id", "industry_group", "sector", "layout", "c_i", "nd_ebitda", "cfo_np"]] if "cfo_np" in live.fund.columns else live.fund[["security_id", "industry_group", "sector", "layout", "c_i", "nd_ebitda"]]
+    m = live.members[["security_id", "symbol", "company_id", "mcap_pit_cr", "adv63_lakh", "feature_complete", "mcap_flag"]].copy()
+    f = live.fund[["security_id", "industry_group", "sector", "layout", "c_i", "nd_ebitda", "cfo_np"]]
     out = m.merge(f, on="security_id", how="left").merge(live.market, on="security_id", how="left")
     return out
 

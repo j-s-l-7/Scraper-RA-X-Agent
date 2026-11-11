@@ -29,7 +29,7 @@ BIAS = "DATA & BIAS  (run 1)\nHoldout: sealed 1Y 2025-03-01..; unsealed no"
 
 
 def _fam(**kw):
-    base = {"family": "1Y-june", "n_trials": 50, "md": "x", "headlines": [Est("ic", 0.1, 0.0, 0.2, 90, 5)], "bias_block": BIAS}
+    base = {"family": "1Y-june", "n_trials": 53, "md": "x", "headlines": [Est("ic", 0.1, 0.0, 0.2, 90, 5)], "bias_block": BIAS}
     base.update(kw)
     return FamilyResult(**base)
 

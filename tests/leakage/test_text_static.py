@@ -2,7 +2,8 @@
 driver, call the network or an LLM, read the clock, or reach beyond ``data/documents``.
 
 * ``reader.py`` is the only module that opens the Scraper's files, and only in text read mode.
-* Parquet/dir creation is allowed in ``extract.py`` only, and only on the ``out_dir`` / ``out_path`` / ``cache_path``
+* Parquet/dir creation is allowed in ``extract.py`` and ``annual.py`` (PT3) only, and only on the ``out_dir`` /
+  ``out_path`` / ``cache_path``
   it derives from ``IDEATION_DATA_DIR/text``.
 * ``ideation.lake`` (the adapter) is imported by ``cli.py`` only; ``psycopg`` by nobody.
 """
@@ -25,7 +26,7 @@ WRITE_ATTRS = {
     "system", "popen",
 }  # fmt: skip
 FS_MODULES = {"os", "shutil"}  # any call on these is a filesystem side effect
-OUTPUT_ONLY = {"to_parquet": {"extract.py"}, "mkdir": {"extract.py"}}
+OUTPUT_ONLY = {"to_parquet": {"extract.py", "annual.py"}, "mkdir": {"extract.py", "annual.py"}}
 BAD_MODES = set("wax+")
 
 

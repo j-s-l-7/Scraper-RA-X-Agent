@@ -20,7 +20,7 @@ from ideation.rank.transform import columns_of_kind
 
 LAYOUTS = ("core", "fin_layout", "fin_other")
 KINDS = ("cross_sectional", "broadcast")
-SETS = ("core", "ext", "shown", "text", "vendor", "tech", "t1", "regime")
+SETS = ("core", "ext", "shown", "text", "vendor", "tech", "t1", "regime", "annual", "text_trend")
 """P2 sets: core / ext / shown. P3 sets (tactical): tech = T0 price and volume columns, t1 = short-history columns
 (delivery, FPI sector flow, ownership, events), regime = broadcast regime and macro columns.
 T0 = tech, T0_regime = tech + regime, T1 = tech + t1; 1Y core_mom / core_ext pick names from

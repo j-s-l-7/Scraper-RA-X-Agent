@@ -1,0 +1,36 @@
+# Annual-report text feature map (05 §12 item 2, PT3). Company-level point-in-time features from annual reports.
+# Owner: PT3. Same per-feature keys as config/features_fundamental.yaml (registry.py validates them).
+#
+# set: annual -> own tier; never part of the 1Y `core`/`ext` matrices and never in feature_complete (complete: false).
+# Definitions (A = anchor; a report is visible iff available_from <= A; available_from = max(FY end + 180 d, parsed
+# cover-letter filing date or AGM date + 1), see ideation/text/annual.py; windows use the report's fiscal-year end):
+#   cur   the visible, quality-OK (doc_ok = 1) annual report with the latest fy_end, fy_end >= A - cur_max_age_days
+#   prev  the visible report of the preceding fiscal year: fy_end in [cur - prev_max_gap_days, cur - prev_min_gap_days]
+#   level   = value in cur;   d_* = value in cur - value in prev (YoY change)
+# Source columns (annual_features_LEX_AR_V1.parquet): ar_tone <- mda_tone_net; ar_unc <- mda_unc_r (uncertainty words per
+# 1,000 MD&A tokens); ar_aud <- aud_flag (qualified/adverse/disclaimer + emphasis of matter + going-concern heading, 0-3);
+# ar_rpt <- rpt_r (related-party mentions per 1,000 words); ar_cl <- cl_r (contingent-liability mentions per 1,000 words).
+# A feature is NaN when its section was not found in the report (no fill of any kind). Uncovered names: all NaN.
+# The R1 transform of a PT3 trial runs on the covered subset (config/trials_1y.yaml `subset: annual_covered`).
+version: 1
+
+params:
+  cur_max_age_days: 600
+  prev_min_gap_days: 300
+  prev_max_gap_days: 430
+
+flags:
+  isna_ar: 1 when the name has no visible quality-OK annual report with fy_end within 600 days (all columns NaN)
+  isna_ar_prev: 1 when cur exists but the preceding-year report does not (all d_ar_* columns NaN)
+
+features:
+  ar_tone:     {family: ar_tone, prior: 1,  kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  ar_unc:      {family: ar_unc,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  ar_aud:      {family: ar_aud,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  ar_rpt:      {family: ar_rpt,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  ar_cl:       {family: ar_cl,   prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  d_ar_tone:   {family: ar_tone, prior: 1,  kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  d_ar_unc:    {family: ar_unc,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  d_ar_aud:    {family: ar_aud,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  d_ar_rpt:    {family: ar_rpt,  prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}
+  d_ar_cl:     {family: ar_cl,   prior: -1, kind: cross_sectional, category: annual_text, set: annual, complete: false}

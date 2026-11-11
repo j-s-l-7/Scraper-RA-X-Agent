@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation text features`` and ``ideation text vendor-gate`` (05 §7.3, §6.3; PT2).
 
 Registered onto the ``text`` sub-app by ``ideation/text/cli.py`` (one call). The commands live here because
@@ -60,6 +61,29 @@ def coverage_tables(cov: pd.DataFrame) -> None:
     console.print(t2)
 
 
+ANNUAL_FILE = "features_annual_text.parquet"
+ANNUAL_COVERAGE_FILE = "features_annual_text_coverage.parquet"
+TREND_FILE = "features_text_trend.parquet"
+TREND_COVERAGE_FILE = "features_text_trend_coverage.parquet"
+
+
+def pt3_coverage_tables(ann: pd.DataFrame, trend: pd.DataFrame) -> None:
+    a = ann.assign(anchor=pd.to_datetime(ann["anchor"]))
+    a = a[a["anchor"].dt.month == 6]
+    t = trend.assign(anchor=pd.to_datetime(trend["anchor"]))
+    t = t[t["anchor"].dt.month == 6].set_index("anchor")
+    pct = lambda x, n: "n/a" if not n else f"{100 * x / n:.1f}%"  # noqa: E731
+    tab = Table("anchor", "U_score", "AR cur", "AR cur+prev", "ar_tone", "ar_unc", "ar_aud", "ar_rpt", "ar_cl", "d_ar_tone",
+                "d_ar_aud", "calls>=3", title="PT3 coverage on U_score, June anchors (annual reports; multi-call trends)")  # fmt: skip
+    for r in a.itertuples():
+        tr = t.loc[r.anchor] if r.anchor in t.index else None
+        tab.add_row(str(r.anchor.date()), str(r.n_u), pct(r.u_cur, r.n_u), pct(r.u_cur_prev, r.n_u), pct(r.nn_ar_tone, r.n_u),
+                    pct(r.nn_ar_unc, r.n_u), pct(r.nn_ar_aud, r.n_u), pct(r.nn_ar_rpt, r.n_u), pct(r.nn_ar_cl, r.n_u),
+                    pct(r.nn_d_ar_tone, r.n_u), pct(r.nn_d_ar_aud, r.n_u),
+                    "n/a" if tr is None else pct(tr["u_trend"], tr["n_u"]))  # fmt: skip
+    console.print(tab)
+
+
 def register(app: typer.Typer) -> None:
     @app.command("features")
     def features_cmd(
@@ -119,6 +143,74 @@ def register(app: typer.Typer) -> None:
         coverage_tables(covdf)
         console.print(f"[green]text features built[/green]: {len(anchor_list)} anchors, {len(feats)} rows, "
                       f"{time.perf_counter() - t0:.1f} s -> {out}")  # fmt: skip
+
+    @app.command("pt3-features")
+    def pt3_features_cmd(
+        anchors: Annotated[
+            str, typer.Option(help="june,march,monthly and/or YYYY-MM-DD dates.")
+        ] = "june,march,monthly",
+        force: Annotated[bool, typer.Option("--force", help="Rebuild even if an identical run succeeded.")] = False,
+    ) -> None:
+        """PT3: PIT annual-report features (levels + YoY deltas) and multi-call text trends; prints coverage on U_score."""
+        from ideation.db.writer import Writer
+        from ideation.features.annual_text import build_annual, load_params
+        from ideation.features.annual_text import coverage_row as ann_cov
+        from ideation.features.registry import load_registry
+        from ideation.features.text import build_text_trend, load_trend_params
+        from ideation.logs import setup_logging
+        from ideation.pit.contract import ANNUAL_DOCS_FILE
+        from ideation.runs import RunRegistry
+
+        settings = get_settings()
+        setup_logging(settings.logs_dir, settings.log_level, console=False)
+        meth = load_methodology()
+        reg = load_registry(settings.config_dir)
+        store = _store(settings)
+        params, tparams = load_params(settings.config_dir), load_trend_params(settings.config_dir)
+        anchor_list = parse_anchors(store.calendar, anchors)
+        from ideation.universe.cli import file_sha
+
+        t0 = time.perf_counter()
+        with Writer.from_settings(settings).connect() as conn:
+            runs = RunRegistry(conn)
+            rp = {"anchors": anchors, "n_anchors": len(anchor_list), "derived": store.derived_sha(),
+                  "annual_sha": file_sha(store.text_dir / ANNUAL_DOCS_FILE),  # type: ignore[operator]
+                  "text_sha": file_sha(store.text_dir / TEXT_DOCS_FILE),  # type: ignore[operator]
+                  "universe_sha": file_sha(store.outputs_dir / "universe_member.parquet")}  # type: ignore[operator]  # fmt: skip
+            with runs.track("features_annual_text", config_hash=meth.config_hash, snap_id=store.snap_id, params=rp,
+                            force=force) as run:  # fmt: skip
+                if run.skipped:
+                    console.print(f"skipped: identical run {run.record.stats} already ok (use --force)")
+                    return
+                fa, ft, ca, ct, records = [], [], [], [], []
+                for a in anchor_list:
+                    view = store.as_of(a)
+                    uni = view.universe()
+                    members = uni[uni["traded_ok"] & uni["company_id"].notna()]
+                    fr = build_annual(view, members, reg, params)
+                    tr = build_text_trend(view, members, reg, tparams)
+                    fa.append(fr)
+                    ft.append(tr)
+                    ca.append(ann_cov(a, uni, fr))
+                    ids = uni.loc[uni["in_u_score"].fillna(False).astype(bool), "security_id"]
+                    g = tr.set_index("security_id").reindex(ids)
+                    ct.append({"anchor": a, "n_u": len(ids), "u_trend": int((g["isna_trend"] == 0).sum())})
+                    records.extend(view.records)
+                annual_df, trend_df = pd.concat(fa, ignore_index=True), pd.concat(ft, ignore_index=True)
+                annual_df.to_parquet(store.outputs_dir / ANNUAL_FILE, index=False)  # type: ignore[operator]
+                trend_df.to_parquet(store.outputs_dir / TREND_FILE, index=False)  # type: ignore[operator]
+                cov_a, cov_t = pd.DataFrame(ca), pd.DataFrame(ct)
+                cov_a.to_parquet(store.outputs_dir / ANNUAL_COVERAGE_FILE, index=False)  # type: ignore[operator]
+                cov_t.to_parquet(store.outputs_dir / TREND_COVERAGE_FILE, index=False)  # type: ignore[operator]
+                conn.execute("delete from ideation.run_manifest where run_id = %s", (run.run_id,))
+                conn.copy_rows("ideation.run_manifest",
+                               ["run_id", "anchor", "item", "n_rows", "sha256", "max_available_from"],
+                               ((run.run_id, *r) for r in records_to_rows(records)))  # fmt: skip
+                run.stats.update({"anchors": len(anchor_list), "rows_annual": len(annual_df),
+                                  "seconds": round(time.perf_counter() - t0, 1)})  # fmt: skip
+        pt3_coverage_tables(cov_a, cov_t.merge(cov_a[["anchor"]], on="anchor"))
+        console.print(f"[green]PT3 features built[/green]: {len(anchor_list)} anchors, {len(annual_df)} rows, "
+                      f"{time.perf_counter() - t0:.1f} s -> {store.outputs_dir}")  # fmt: skip
 
     @app.command("vendor-gate")
     def vendor_gate_cmd(

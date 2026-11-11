@@ -25,6 +25,7 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -152,4 +153,89 @@ def coverage_row(anchor: date, mem: pd.DataFrame, feats: pd.DataFrame) -> dict[s
     return row
 
 
-__all__ = ["SOURCE", "build_text", "coverage_row", "load_params"]
+# ── multi-call trends (05 §12 item 2, PT3) ───────────────────────────────────────────────────────────────────
+TREND_SOURCE = "features_text_trend.yaml"
+TREND_FLAG = "isna_trend"
+TREND_META = ("trend_last_doc_date", "trend_last_available_from", "trend_n_calls")
+
+
+def load_trend_params(config_dir: Path | None = None) -> dict[str, int]:
+    if config_dir is None:
+        from ideation.config import REPO_ROOT
+
+        config_dir = REPO_ROOT / "config"
+    p = yaml.safe_load((Path(config_dir) / TREND_SOURCE).read_text(encoding="utf-8"))["params"]
+    return {k: int(v) for k, v in p.items()}
+
+
+def _slope(x: np.ndarray, y: np.ndarray) -> float:
+    ok = ~np.isnan(y)
+    x, y = x[ok], y[ok]
+    if len(x) < 2:
+        return float("nan")
+    xc = x - x.mean()
+    den = float((xc**2).sum())
+    return float((xc * (y - y.mean())).sum() / den) if den > 0 else float("nan")
+
+
+def _streak(y: np.ndarray) -> float:
+    """Consecutive strictly improving steps counted back from the latest call (NaN breaks the streak)."""
+    n = 0
+    for i in range(len(y) - 1, 0, -1):
+        if np.isnan(y[i]) or np.isnan(y[i - 1]) or not y[i] > y[i - 1]:
+            break
+        n += 1
+    return float(n)
+
+
+def build_text_trend(
+    view: PitView, members: pd.DataFrame, reg: Registry, params: dict[str, int] | None = None
+) -> pd.DataFrame:
+    """One row per member security: ``tone_slope4``, ``guide_slope4``, ``impr_streak`` (+ ``_rg``), ``isna_trend`` and
+    provenance. Uses only transcripts with ``available_from <= A`` (``PitView.text_docs`` guard, asserted again);
+    ``doc_date`` (month-granular) only orders the calls and sets the slope's time axis. No fill."""
+    par = params or load_trend_params()
+    mem = members[members["company_id"].notna()][["security_id", "company_id"]].copy()
+    mem["company_id"] = mem["company_id"].astype("int64")
+    ids = pd.Index(sorted(mem["company_id"].unique()))
+    docs = view.text_docs("concall_transcript", ("company_id", "doc_date", "tone_net", "guide_net"))
+    docs = docs[docs["company_id"].isin(ids)]
+    a = pd.Timestamp(view.anchor)
+    d = docs.assign(dd=pd.to_datetime(docs["doc_date"]), af=pd.to_datetime(docs["available_from"]))
+    if len(d) and (d["af"] > a).any():
+        raise LeakageError(f"text document available_from {d['af'].max().date()} > anchor {view.anchor}")
+    d = d[d["dd"] >= a - pd.Timedelta(days=par["max_age_days"])].sort_values(["company_id", "dd", "af"], kind="stable")
+    rows: dict[int, dict[str, Any]] = {}
+    for cid, g in d.groupby("company_id", sort=False):
+        g = g.tail(par["n_calls"])
+        n = len(g)
+        if n < par["min_calls"]:
+            continue
+        x = (g["dd"] - g["dd"].iloc[-1]).dt.days.to_numpy(dtype=float) / 365.25
+        tone, guide = g["tone_net"].to_numpy(dtype=float), g["guide_net"].to_numpy(dtype=float)
+        rows[int(cid)] = {
+            "tone_slope4": _slope(x, tone), "guide_slope4": _slope(x, guide), "impr_streak": _streak(tone),
+            "trend_last_doc_date": _day(g["dd"].iloc[-1]), "trend_last_available_from": _day(g["af"].max()),
+            "trend_n_calls": n,
+        }  # fmt: skip
+    names = reg.names(source=TREND_SOURCE)
+    f = pd.DataFrame.from_dict(rows, orient="index", columns=[*names, *TREND_META]).reindex(ids)  # also when empty
+    for n_ in names:
+        f[n_] = f[n_].astype("float64") if n_ in f else float("nan")
+    f[TREND_FLAG] = f["trend_n_calls"].isna().astype("int8")
+    mem = mem.merge(f, left_on="company_id", right_index=True, how="left", validate="many_to_one")
+    for n_ in names:
+        per_company = f[n_].dropna()
+        z = rank_gauss(per_company) if len(per_company) else per_company
+        mem[f"{n_}_rg"] = mem["company_id"].map(z).astype("float64")
+    mem.insert(0, "anchor", view.anchor)
+    out = mem[[*IDENTITY_COLS, *names, *(f"{n_}_rg" for n_ in names), TREND_FLAG, *TREND_META]]
+    out = out.sort_values("security_id").reset_index(drop=True)
+    if out["trend_last_available_from"].notna().any():
+        mx = max(x for x in out["trend_last_available_from"] if pd.notna(x))
+        if mx > view.anchor:
+            raise LeakageError(f"text trend built from a document available_from {mx} > anchor {view.anchor}")
+    return out
+
+
+__all__ = ["SOURCE", "build_text", "build_text_trend", "coverage_row", "load_params", "load_trend_params"]

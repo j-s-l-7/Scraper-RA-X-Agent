@@ -1871,3 +1871,48 @@ OOD (size 0, unscorable) among the liquid names: 7 (1Y) and 2 (3M); 13 per horiz
 - LLM summary was NOT exercised against the API (no key use in tests/by design); only the request building, parsing, caps and failure paths are tested with a fake transport.
 - The overlay is an interface only; 04's expert module (migrations 060-064) will implement `ExpertOverlay`; the exclude/boost/conflict semantics are unit-tested with a fake provider.
 - `tests/lake/test_e1_ddl.py::test_register_then_train_guard` can fail in the shared ledger (known MS2 interaction), unrelated to P6.
+
+## Experts: X expert signals (branch `phase-expert-signals`, worktree `../wt-expert`; 04 addendum)
+LIVE-ONLY, UNVALIDATED. Gautam Baid = hard-filter bad / boost great; Aravind = regime narrative tags only. Never a feature, label, training input or backtest source.
+
+### Built
+- `ideation/experts/`: `reader.py` (xagent.db via sqlite URI `mode=ro` + `query_only`; stores only `sha256(text + parent)`), `extract.py` (OpenAI chat completions, strict JSON schema, cache key `sha256(text_hash|prompt_version|model)`, key scrubbed from every error, HTTP error body surfaced), `resolve.py` (ticker -> BSE code -> unique normalized name against `ideation.security_map`), `ledger.py` (entry = first session strictly after the post's IST date; horizons via the C3 exit rule; Wilson 90%), `overlay.py` (`LiveExpertOverlay` implements the P6 `ExpertOverlay`; `regime_tags()`), `service.py` (cache, upsert, ledger update), `cli.py`.
+- Migrations (range 060-064, NOT applied by me; tested only in `ddl_sandbox`): 060 `expert_call`, 061 `expert_call_symbol`, 062 `expert_extraction_cache`, 063 `expert_signal_ledger`, 064 view `v_expert_active_calls`. No text column exists anywhere.
+- `config/experts.yaml`: authors/roles, `ledger_start: 2026-11-01`, overlay window 90 d, boost needs confidence >= medium, extraction caps (`max_posts` 2000, `since_months` 12), owner-set token prices (unverified).
+- Ban list: all five relations added to `ideation/lake/bans.py`; static test that no backtest-path package (`features, labels, universe, models, cv, eval, rank, regime, tactical, outcomes, predict, trials, bakeoff, pit, report`) imports `ideation.experts`; runtime tests that BACKTEST and SNAPSHOT modes refuse each table.
+- `ideation.config.Settings` gained `openai_api_key` (SecretStr) / `openai_model`, loaded through `IDEATION_SECRETS_FILE`. Three new named lake queries (`EXPERT_BHAV_CLOSES`, `EXPERT_ADJ_FACTOR`, `EXPERT_BENCH`).
+- Ideas engine: `ideation ideas --expert-overlay` (off by default) swaps `NullOverlay` for the live overlay, stores the effects (with label) in `idea.overlay` and renders "expert overlay, live, unvalidated" sections. The engine still decides boost -> conflict (bottom decile) and the financials Medium cap.
+
+### Commands (`ideation experts ...`)
+| command | what |
+|---|---|
+| `ingest [--since D] [--max-posts N] [--dry-run] [--yes]` | read xagent.db, print count + token/cost estimate, spend only with `--yes`, write calls, resolve |
+| `ledger [--no-refresh]` | update the forward ledger from PIT prices and print "Expert forward record since 2026-11" |
+| `status` | calls by author/kind, resolution counts, cache size, ledger rows, regime tags |
+
+### Measured (real run, 2026-11-11, inside a rolled-back transaction because 060-064 are unapplied on the lake)
+- xagent.db: 28 posts from the two configured authors (Baid 8, Aravind 20), 25 with a parent post. 0 media-only.
+- One real call first (strict schema accepted, no 400), then all 28: 12,693 input / 3,548 output tokens, ~1 min wall, 0 failures. Estimate printed was ~20.2k in / 7.0k out ($0.24 at the owner-set prices; actual ~$0.13): the estimate is deliberately conservative.
+- 14 calls: Baid 7 (3 ideas, all index/sector-level bullish with no company, plus 4 principles), Aravind 7 (5 ideas: macro/sector/theme tags and one company-level "Tata" with no ticker -> unresolved, as designed).
+- Company-level resolved calls: 0. So the overlay has nothing to apply yet and the ledger is empty; the scorecard prints "insufficient track record". This is the expected state, not a bug.
+- Sample (structured fields only): `Gautam__Baid 2026-10-23 idea index bullish high`; `Gautam__Baid 2026-11-04 idea sector bullish high`; `aravind 2026-10-28 idea company bullish medium symbol=Tata unresolved`; `aravind 2026-10-28 idea macro bullish 6 months`.
+- Synthetic end-to-end (lake test, rolled back): RELIANCE.NS resolves to a real `security_id`/`company_id` via `security_map`, the overlay emits `exclude`, the ledger enters at the next session and leaves 1M unmatured.
+
+### Tests
+`tests/unit/test_experts.py` (reader read-only at runtime + static AST, no-text-column migration check, strict-schema walker, fake transport, retry/400 handling, key never in exceptions or caplog, cache-key sensitivity, estimate, secrets-file loading, resolution table, entry-session cases weekend/holiday/late-UTC, forward returns with a bonus factor, Wilson, insufficient-track-record report, overlay actions/window/supersession/speculative author/regime tags/exclude-beats-boost, ban runtime), `tests/leakage/test_static_ban.py` (import ban + planted self-tests), `tests/lake/test_experts_lake.py` (sandbox DDL, ingest -> resolve -> overlay -> ledger on the real lake). No test calls the API.
+
+### Deviations from 04 (and why)
+- Names follow the task brief: `ideation/experts/`, `ideation experts`, `expert_call`; 04's `expert_post`/`expert_idea`/`expert_person` and any `text`/`parent_text` column are not created (hash only).
+- Tweet text is read from xagent.db only in memory; `tweets.raw` is parsed in memory solely to find the parent post id.
+- No `sector_tag` action: it needs the lake industry enum in the extraction schema. Baid's sector/index calls are stored and displayed in `status` only. `refresh`, `effects`, `show` subcommands of 04 §8 are replaced by `ingest/ledger/status`.
+- Ledger: raw bhav close, adjusted with every `adj_factor` row in (entry, exit] (split/bonus/dividend, no causal sanity check as in P1); benchmark is `^NSEI` (Nifty 50), not Nifty 500 or the industry-group composite (neither is in the lake as a series). "Filter value" (excluded vs remaining ideas) is not computed yet. Hit = beats the benchmark (bullish) or trails it (bearish/avoid).
+- Ledger starts 2026-11-01 per the brief; all October calls (here: 6 of the 14 are before it, none of them a resolved company-level call) are stored and usable by the overlay but not scored.
+- The calendar is `ideation.calendar` extended with ^NSEI sessions beyond its last row.
+
+### Risks / notes for the orchestrator
+- Apply 060-064 on main with `ideation init-db`. The rolled-back extraction cache means main pays for these 28 posts once more (~$0.13).
+- Adding `config/experts.yaml` changes `config_hash`: the first rerun of every idempotent command recomputes instead of skipping.
+- `tests/unit/test_migrate_files.py::EXPECTED_TABLES` and `test_config.py` were edited; expect a trivial merge conflict if PT3 edits the same lines.
+- Baid posted no single-stock call in the 14 days of data: the overlay will be idle until he does. The model may also emit tickers it is unsure of; those stay `unresolved` and are never applied.
+- Token prices in `experts.yaml` are placeholders, not OpenAI's list; only the printed estimate depends on them.
+- LLM theses are model-written summaries stored in `expert_call.thesis` and shown in the ideas report; they can echo a post closely. Treat them as unvalidated.

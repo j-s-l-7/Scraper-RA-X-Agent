@@ -76,10 +76,13 @@ def read_posts(path: Path, *, since: datetime | None = None, handles: set[str] |
         refs = {int(i): (t or "") for i, t in conn.execute("select id, text from refs")}
     finally:
         conn.close()
+    canon = {h.lower(): h for h in handles} if handles is not None else None  # X handles are case-insensitive
     out: list[Post] = []
     for tid, handle, created, text, raw in rows:
-        if handles is not None and handle not in handles:
-            continue
+        if canon is not None:
+            if str(handle).lower() not in canon:
+                continue
+            handle = canon[str(handle).lower()]
         ts = datetime.fromisoformat(str(created).replace("Z", "+00:00")).astimezone(UTC)
         if since is not None and ts < since:
             continue

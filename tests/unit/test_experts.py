@@ -44,7 +44,7 @@ def xdb(tmp_path: Path) -> Path:
         "create table users(username text primary key, id text, name text, profile text, fetched_at text);"
         "create table tweets(id integer primary key, author_id text, created_at text, text text, lang text, raw text);"
         "create table refs(id integer primary key, author text, text text, fetched_at text);"
-        "insert into users values ('Gautam__Baid','1','n','p','t'), ('aravind','2','n','p','t'), ('other','3','n','p','t');"
+        "insert into users values ('gautam__baid','1','n','p','t'), ('aravind','2','n','p','t'), ('other','3','n','p','t');"
         "insert into refs values (900, 'a', 'PARENT-CONTEXT', 't');"
         "insert into tweets values (10,'1','2026-10-30T20:00:00.000Z','synthetic text one','en',null),"
         " (11,'2','2026-11-02T04:00:00.000Z','synthetic text two','en',null),"
@@ -60,6 +60,7 @@ def xdb(tmp_path: Path) -> Path:
 def test_reader_filters_and_parent(xdb: Path) -> None:
     posts = reader.read_posts(xdb, handles={"Gautam__Baid", "aravind"})
     assert [p.tweet_id for p in posts] == [10, 11, 12]
+    assert posts[0].handle == "Gautam__Baid"  # xagent stores the handle lower-case; config casing wins
     assert posts[0].parent_text == "PARENT-CONTEXT" and posts[1].parent_text == ""
     assert reader.is_media_only(posts[2]) and not reader.is_media_only(posts[0])
     since = datetime(2026, 11, 1, tzinfo=UTC)

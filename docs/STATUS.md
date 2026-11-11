@@ -1843,7 +1843,16 @@ still fails. The PT3 trials' own DSR is 0.02-0.03 (SR of IC 0.04-0.23 against SR
 Selection, PBO and the other 50 trials' rows are untouched: PT3 trials are `subset` trials, so `apply_family` never sees them.
 
 ### Acceptance
-ACCEPT_PLACEHOLDER
+| check | result |
+|---|---|
+| `uv run ruff check .` | All checks passed |
+| `uv run pytest -p no:xdist -m "not lake"` | 603 passed, 1 xfailed, 1 xpassed (138 s) |
+| `uv run pytest -p no:xdist -m lake` | 121 passed (652 s); includes `tests/lake/test_pt3_annual.py` (6) |
+| `uv run python scripts/secret_scan.py --all` | clean |
+| cold extraction runtime | 1,258 s (21.0 min) <= 30 min |
+| no data in git | `git ls-files` holds no parquet / pkl / csv / venv |
+Existing tests touched: `test_trials.py` (53 trials, frozen-hash digest), `test_ms3_report.py` and `report/store.py::EXPECTED_N` (53), `test_e1_ddl.py` (sandbox count 53),
+`test_text_static.py` (`annual.py` may write parquet/dirs). The MS3 research report predates N = 53 and says N = 50; a re-render now needs the 53 ledger (it will pass the N check).
 
 ### Deviations from the brief (and why)
 - **Trials live in the 1Y-june file (N = 53), not a new family**: the DSR must count them, `family_n` in the ledger and `EXPECTED_N` in the report now say 53. The 50 frozen

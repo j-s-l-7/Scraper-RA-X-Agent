@@ -67,6 +67,13 @@ TREND_FILE = "features_text_trend.parquet"
 TREND_COVERAGE_FILE = "features_text_trend_coverage.parquet"
 
 
+def merge_coverage(cov_a: pd.DataFrame, cov_t: pd.DataFrame) -> pd.DataFrame:
+    """Trend coverage restricted to the annual coverage anchors; robust to ``date`` vs ``Timestamp`` anchors."""
+    a = cov_a[["anchor"]].assign(anchor=pd.to_datetime(cov_a["anchor"]))
+    t = cov_t.assign(anchor=pd.to_datetime(cov_t["anchor"]))
+    return t.merge(a.drop_duplicates(), on="anchor")
+
+
 def pt3_coverage_tables(ann: pd.DataFrame, trend: pd.DataFrame) -> None:
     a = ann.assign(anchor=pd.to_datetime(ann["anchor"]))
     a = a[a["anchor"].dt.month == 6]
@@ -171,6 +178,8 @@ def register(app: typer.Typer) -> None:
         from ideation.universe.cli import file_sha
 
         t0 = time.perf_counter()
+        annual_df, cov_a, cov_t = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()  # bound on every path
+        skipped = False
         with Writer.from_settings(settings).connect() as conn:
             runs = RunRegistry(conn)
             rp = {"anchors": anchors, "n_anchors": len(anchor_list), "derived": store.derived_sha(),
@@ -181,6 +190,7 @@ def register(app: typer.Typer) -> None:
                             force=force) as run:  # fmt: skip
                 if run.skipped:
                     console.print(f"skipped: identical run {run.record.stats} already ok (use --force)")
+                    skipped = True
                     return
                 fa, ft, ca, ct, records = [], [], [], [], []
                 for a in anchor_list:
@@ -208,7 +218,9 @@ def register(app: typer.Typer) -> None:
                                ((run.run_id, *r) for r in records_to_rows(records)))  # fmt: skip
                 run.stats.update({"anchors": len(anchor_list), "rows_annual": len(annual_df),
                                   "seconds": round(time.perf_counter() - t0, 1)})  # fmt: skip
-        pt3_coverage_tables(cov_a, cov_t.merge(cov_a[["anchor"]], on="anchor"))
+        if skipped or cov_a.empty:
+            return
+        pt3_coverage_tables(cov_a, merge_coverage(cov_a, cov_t))
         console.print(f"[green]PT3 features built[/green]: {len(anchor_list)} anchors, {len(annual_df)} rows, "
                       f"{time.perf_counter() - t0:.1f} s -> {store.outputs_dir}")  # fmt: skip
 

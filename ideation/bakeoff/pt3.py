@@ -31,6 +31,11 @@ MS1_CHAMPION_DSR = 0.813
 FLAGS = {"annual_covered": ("isna_ar", "isna_ar_prev"), "trend_covered": ("isna_trend", None)}
 
 
+def n_preregistered(specs: list[TrialSpec]) -> int:
+    """Trials registered before PT3: every spec except the PT3 ones (by registration, independent of what was fitted)."""
+    return len(specs) - sum(1 for s in specs if s.config.get("subset") in PT3_SUBSETS)
+
+
 def coverage_table(panel: Panel, subset: str) -> pd.DataFrame:
     """Universe-restricted coverage per June anchor: names in U_score, covered (the trial's subset), covered with the
     previous-year / second reference (annual only)."""
@@ -59,7 +64,7 @@ def dsr_block(specs: list[TrialSpec], panels: dict[str, Panel], root: Path, res:
             pool[k] = ic
     arr = np.array([v for v in (RP.sharpe_of(s) for s in pool.values()) if v == v])
     n_all = len(specs)
-    n_pre = n_all - len(res)
+    n_pre = n_preregistered(specs)  # registered, not fitted: a PT3 trial that failed or was skipped is still in N
     out: dict[str, Any] = {"n_pre": n_pre, "n_all": n_all, "pool_size": len(arr), "var_pool": float(np.var(arr, ddof=1))}
     if CHAMPION in pool:
         for label, n in (("pre", n_pre), ("all", n_all)):

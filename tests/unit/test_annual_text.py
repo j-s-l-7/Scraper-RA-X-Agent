@@ -166,8 +166,9 @@ def test_cur_prev_levels_deltas_no_fill(tmp_path: Path) -> None:
     assert f.loc[1, "ar_tone"] == pytest.approx(0.55) and f.loc[1, "d_ar_tone"] == pytest.approx(0.15)
     assert f.loc[1, "d_ar_aud"] == 1 and f.loc[1, "d_ar_rpt"] == pytest.approx(0.2)
     assert f.loc[2, "isna_ar"] == 0 and f.loc[2, "isna_ar_prev"] == 1 and np.isnan(f.loc[2, "d_ar_tone"])
-    for c in (3, 4, 5, 6):  # uncovered: every value NaN, no fill
-        assert f.loc[c, "isna_ar"] == 1
+    assert f.loc[1, "isna_ar_prev"] == 0
+    for c in (3, 4, 5, 6):  # uncovered: every value NaN, no fill; no previous report either, so isna_ar_prev = 1
+        assert f.loc[c, "isna_ar"] == 1 and f.loc[c, "isna_ar_prev"] == 1
         assert f.loc[c, [*REG.names(source="features_annual_text.yaml")]].isna().all()
     assert f["ar_tone_rg"].notna().sum() == 2 and f.loc[[3, 4, 5, 6], "ar_tone_rg"].isna().all()
     # company 5 turns visible exactly on available_from (2023-09-27), not a day earlier
@@ -245,3 +246,102 @@ def test_trend_empty_anchor(tmp_path: Path) -> None:
     st = _store(tmp_path, [_ar(1, 2022, 0.5, 0)], [_tdoc(1, date(2023, 1, 1), 0.5, 0.0)])  # one call only
     f = build_text_trend(st.as_of(date(2023, 8, 31)), _members(1, 2), REG, TPAR)
     assert f["isna_trend"].eq(1).all() and f[["tone_slope4", "guide_slope4", "impr_streak"]].isna().all().all()
+
+
+# ── PT3 review fixes ─────────────────────────────────────────────────────────────────────────────────────────
+def test_availability_takes_latest_in_window_parsed_date() -> None:
+    c = lambda *a: date(*a)  # noqa: E731
+    # FY end 2023-03-31: three in-window cover-letter dates and two AGM dates; the LATEST of all of them rules
+    cover = [c(2023, 5, 2), c(2023, 8, 8), c(2023, 12, 1)]
+    agm = [c(2023, 9, 29), c(2023, 11, 10)]
+    r = A.availability(2023, 3, cover, agm, [])
+    assert r["filed_date"] == c(2023, 12, 1) and r["agm_date"] == c(2023, 11, 10)
+    assert r["available_from"] == c(2023, 12, 2) and r["avail_basis"] == "filed"
+    # out-of-window dates never count, in-window ones can only push availability later than the lag
+    r = A.availability(2023, 3, [c(2023, 4, 10), c(2023, 7, 1)], [c(2025, 1, 1)], [])
+    assert r["available_from"] == c(2023, 9, 27) and r["avail_basis"] == "lag"
+    for extra in (c(2023, 5, 5), c(2023, 6, 6), c(2024, 1, 15)):
+        base = A.availability(2023, 3, [c(2023, 8, 8)], [], [])["available_from"]
+        assert A.availability(2023, 3, [c(2023, 8, 8), extra], [], [])["available_from"] >= base
+
+
+def test_fy_end_never_earlier_than_label_or_text_and_unknown_month() -> None:
+    c = lambda *a: date(*a)  # noqa: E731
+    # company absent from the fy-month map: the month comes from the text (latest 'year ended' date inside the label year)
+    assert A.resolve_fy_end(2023, None, [c(2023, 6, 30), c(2022, 6, 30)]) == (c(2023, 6, 30), "text_month")
+    # no month and no text: the conservative (latest plausible) year end of the label year
+    assert A.resolve_fy_end(2023, None, []) == (c(2023, 12, 31), "assumed")
+    assert A.availability(2023, None, [], [], [])["available_from"] == c(2023, 12, 31) + timedelta(days=A.AVAIL_LAG_DAYS)
+    # a (wrong) March label for a company whose text says a later year end: the later wins
+    assert A.resolve_fy_end(2014, 3, [c(2014, 12, 31)]) == (c(2014, 12, 31), "text")
+    # label later than the text: the label (later) is kept
+    assert A.resolve_fy_end(2013, 3, [c(2012, 12, 31)]) == (c(2013, 3, 31), "label")
+    for fy, m, cands in [(2020, 3, []), (2020, 3, [c(2019, 12, 31)]), (2020, None, [c(2020, 9, 30)]), (2020, 6, [c(2020, 9, 30)])]:
+        end, _ = A.resolve_fy_end(fy, m, cands)
+        for cand in cands:
+            if A.label_fy_end(fy, m or 12) - timedelta(days=400) <= cand <= A.label_fy_end(fy, m or 12) + timedelta(days=366):
+                assert end >= cand or m is None
+
+
+def test_cache_keys_treat_every_null_sha_as_missing() -> None:
+    shas = ["abc", float("nan"), None, pd.NA, "", "  ", "def"]
+    paths = [f"p{i}" for i in range(len(shas))]
+    got = A.cache_keys(shas, paths)
+    assert got == ["abc", "path:p1", "path:p2", "path:p3", "path:p4", "path:p5", "def"]
+    assert len(set(got)) == len(got)
+    ser = pd.Series(shas, dtype="object")
+    assert A.cache_keys(ser, pd.Series(paths)) == got
+
+
+def _catalog(tmp_path: Path, n: int, nan_sha_from: int | None = None) -> pd.DataFrame:
+    import gzip
+    import json
+
+    rows = []
+    for i in range(n):
+        rel = f"data/documents/T{i}/annual_report/r{i}.jsonl.gz"
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(f, "wt", encoding="utf-8") as fh:
+            for k, t in enumerate(_pages()):
+                fh.write(json.dumps({"page": k + 1, "text": t}) + "\n")
+        sha = None if (nan_sha_from is not None and i >= nan_sha_from) else f"sha{i}"
+        rows.append({"company_id": i + 1, "doc_type": "annual_report", "period_label": "AR", "fiscal_year": 2023, "doc_date": None,
+                     "source": "bse", "fetch_source": "x", "page_count": 6, "char_count": 100_000 + i, "pdf_sha256": sha, "text_path": rel})
+    return pd.DataFrame(rows)
+
+
+def test_build_limit_uses_separate_cache_and_mixed_null_shas(tmp_path: Path) -> None:
+    cat = _catalog(tmp_path / "docs", 4, nan_sha_from=2)
+    cat.loc[3, "pdf_sha256"] = float("nan")
+    cat["pdf_sha256"] = cat["pdf_sha256"].astype("object")
+    cat.loc[2, "pdf_sha256"] = pd.NA
+    out = tmp_path / "out"
+    df, st = A.build(cat, documents_root=tmp_path / "docs", out_dir=out, fy_months={}, workers=1)
+    assert st["extracted"] == 4 and st["unreadable"] == 0 and len(df) == 4
+    _, cache = A.output_paths(out)
+    prod = pd.read_parquet(cache)
+    assert set(prod["cache_key"]) == {"sha0", "sha1", "path:" + cat.loc[2, "text_path"], "path:" + cat.loc[3, "text_path"]}
+    sha_before = cache.read_bytes()
+    # --limit with --no-cache: must not touch the production cache nor the production output
+    out_path, _ = A.output_paths(out)
+    out_bytes = out_path.read_bytes()
+    df2, st2 = A.build(cat, documents_root=tmp_path / "docs", out_dir=out, fy_months={}, workers=1, use_cache=False, limit=2)
+    assert len(df2) == 2 and st2["extracted"] == 2
+    assert cache.read_bytes() == sha_before and out_path.read_bytes() == out_bytes
+    assert (cache.parent / f"limit_{cache.name}").exists()
+    # warm run afterwards still reads the full production cache
+    _, st3 = A.build(cat, documents_root=tmp_path / "docs", out_dir=out, fy_months={}, workers=1)
+    assert st3["from_cache"] == 4 and st3["extracted"] == 0
+
+
+def test_coverage_row_cur_prev_consistent_with_flags(tmp_path: Path) -> None:
+    from ideation.features.annual_text import coverage_row
+
+    st = _store(tmp_path, [_ar(1, 2021, 0.4, 0), _ar(1, 2022, 0.5, 0), _ar(2, 2022, 0.3, 0)])
+    a = date(2023, 6, 30)
+    f = build_annual(st.as_of(a), _members(1, 2, 3), REG, PAR)
+    mem = pd.DataFrame({"security_id": [101, 102, 103], "in_u_score": [True, True, True]})
+    row = coverage_row(a, mem, f)
+    assert row["u_cur"] == 2 and row["u_cur_prev"] == 1
+    assert f.set_index("company_id").loc[3, ["isna_ar", "isna_ar_prev"]].tolist() == [1, 1]

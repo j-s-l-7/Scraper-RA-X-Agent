@@ -63,6 +63,32 @@ def family_anchors(
     return anchors
 
 
+TEXT_FILE = "features_text.parquet"
+TEXT_FLAGS = ("isna_text", "isna_text_prev", "isna_ppt")
+
+
+def attach_text(panel: Panel, out_dir: Path, reg: Registry) -> Panel:
+    """Panel with PT2's raw text columns and the coverage flags (MS1-text, 05 §7.3).
+
+    Raw columns only (never the ``_rg`` copies); a name without a row in the text file counts as uncovered
+    (``isna_text`` = 1). The availability of every joined row is checked against the anchor, and only the panel's own
+    anchors (June 2016..2024) are joined, so the 2025/2026 text rows never enter.
+    """
+    txt = pd.read_parquet(out_dir / TEXT_FILE)
+    txt["anchor"] = pd.to_datetime(txt["anchor"]).dt.date
+    txt = txt[txt["anchor"].isin(set(panel.anchors))]
+    avail = pd.to_datetime(txt["text_available_from"])
+    if (avail.notna() & (avail > pd.to_datetime(txt["anchor"]))).any():
+        raise ValueError("text feature available after its anchor")
+    cols = [n for n in reg.names(sets=["text"]) if n in txt.columns]
+    txt = txt[["anchor", "security_id", *cols, *TEXT_FLAGS]]
+    frame = panel.frame.merge(txt, on=["anchor", "security_id"], how="left", validate="1:1")
+    for c in TEXT_FLAGS:
+        frame[c] = frame[c].fillna(1).astype(int)
+    files = {**panel.files, TEXT_FILE: sha256_file(out_dir / TEXT_FILE)}
+    return Panel(panel.family, panel.snap_id, frame, panel.anchors, panel.label_end, files)
+
+
 def sha256_file(path: Path) -> str:
     import hashlib
 
@@ -149,6 +175,14 @@ def build_matrix(
     """R1 on the trial's universe. ``raw_input`` (P1_UNIFIED) returns the winsorized raw columns instead of R1."""
     names = resolve_features(cfg, reg)
     rows = panel.universe_rows(universe_rule(cfg)).copy()
+    if cfg.get("subset") == "text_covered":
+        # 05 §7.3: the covered subset is cut BEFORE R1, so nothing is zero-filled into an uncovered name and the
+        # per-anchor transform, the target and the percentile all live inside the covered names.
+        if "isna_text" not in rows.columns:
+            raise KeyError("subset text_covered needs the text columns (data.attach_text)")
+        rows = rows[rows["isna_text"] == 0].reset_index(drop=True)
+    elif cfg.get("subset"):
+        raise ValueError(f"unknown subset {cfg['subset']!r}")
     bcols = [n for n in names if n in reg.broadcast_cols()]
     growth = reg.growth_cols()
     spec = TransformSpec(

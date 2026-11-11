@@ -1,0 +1,21 @@
+# Sector/theme lens (05 §9.3). REPORTING ONLY: never used for selection, weighting or training.
+# Themes come from theme_screen.py (sub_industries plus named symbols; the owner's Nov-2026 screen).
+disclosure: >-
+  Theme membership uses Nov-2026 labels and themes chosen in Nov-2026 with hindsight; historical theme results are
+  biased and are never used for selection or weighting. Expert posts (X) are live, unvalidated context.
+min_group_names: 15            # industry_group IC is computed only for groups with at least this many names per anchor
+themes:
+  dc_power_ancillaries:
+    sub_industries: [Heavy Electrical Equipment, Other Electrical Equipment, Cables - Electricals,
+                     "Compressors, Pumps & Diesel Engines", Power - Transmission]
+    symbols: [NETWEB, BLUESTARCO, VOLTAS, ANANTRAJ, TECHNOE, KEC, KPIL, SCHNEIDER]
+  aero_via_auto_ancs:
+    sub_industries: [Aerospace & Defense, Castings & Forgings]
+    symbols: [AZAD, BHARATFORG, DYNAMATECH, MOTHERSON, MTARTECH, RKFORGE, SANSERA]
+  crude_linked:
+    sub_industries: [Refineries & Marketing, Oil Exploration & Production, LPG/CNG/PNG/LNG Supplier,
+                     Gas Transmission/Marketing, Lubricants, Oil Equipment & Services, Oil Storage & Transportation]
+    symbols: [AAKASH, ABAN, ALPHAGEO, DOLPHIN, ELECTCAST, JINDALSAW, JINDRILL, MANINDS, RATNAMANI, WELCORP]
+  crude_down_beneficiaries:
+    sub_industries: [Paints, Tyres & Rubber Products, Airline]
+    symbols: [ASTRAL, IGL, MGL, PIDILITIND, SUPREMEIND]

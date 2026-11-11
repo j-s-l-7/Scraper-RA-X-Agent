@@ -1,6 +1,7 @@
 """The bake-off loop (05 §3, §8): every runnable trial of the family, WFO then CPCV, results parquet per trial.
 
-Trials 44-45 (``subset: text_covered``) are skipped here and stay ``registered`` (MS1-text runs them later). Consensus
+Trials 44-45 (``subset: text_covered``) run only when named in ``only`` (MS1-text) on a panel that carries the text
+columns; each also runs its paired control arm (same learner on the core columns, same covered rows). Consensus
 trials 46-48 are built from the members' predictions after the members ran. Window variants cannot be expressed in
 CPCV (it trains on every non-purged anchor), so their CPCV equals their base's and is copied, not refitted.
 """
@@ -32,6 +33,13 @@ CPCV_COPY_FROM = {"P1_WFO_2Y": "P1_WFO_3Y", "RF_GLOBAL_TRAIN2Y": "RF_GLOBAL", "R
 
 def is_text(spec: TrialSpec) -> bool:
     return bool(spec.config.get("subset"))
+
+
+def control_spec(spec: TrialSpec) -> TrialSpec:
+    """Protocol arm of a text trial (not a trial: not registered, not in N, never in ``oos_prediction``): the same
+    learner on the core columns, the same covered rows, folds and windows. Its own config hash keys its checkpoints."""
+    cfg = {**spec.config, "features": "core", "arm": "control"}
+    return TrialSpec(spec.family, spec.num, f"{spec.trial_id}__CTRL", spec.horizon, spec.anchor_family, cfg)
 
 
 def results_dir(root: Path, snap_id: str, spec: TrialSpec) -> Path:
@@ -93,12 +101,18 @@ def run_bakeoff(
     cache: dict[tuple, TrialMatrix] = {}
     by_id = {s.trial_id: s for s in specs}
     outcomes = []
+    todo: list[TrialSpec] = []
     for spec in specs:
         if is_text(spec):
-            log_fn(f"{spec.trial_id}: text trial, left 'registered' (MS1-text)")
+            if not only or spec.trial_id not in only:
+                log_fn(f"{spec.trial_id}: text trial, left 'registered' (run with --text)")
+                continue
+            todo.extend([spec, control_spec(spec)])
             continue
         if only and spec.trial_id not in only:
             continue
+        todo.append(spec)
+    for spec in todo:
         panel = panels[spec.config["anchor_family"]]
         t0 = time.perf_counter()
         d = results_dir(data_root, panel.snap_id, spec)
@@ -181,10 +195,17 @@ def _rank_cols(oos: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def load_panels(data_dir: Path, snap_id: str, families: set[str], reg: Registry | None = None) -> dict[str, Panel]:
+def load_panels(
+    data_dir: Path, snap_id: str, families: set[str], reg: Registry | None = None, *, with_text: bool = False
+) -> dict[str, Panel]:
+    from ideation.bakeoff.data import attach_text
+
     reg = reg or load_registry()
     out_dir = data_dir / "outputs" / snap_id
-    return {f: load_panel(out_dir, snap_id, f, reg) for f in sorted(families)}
+    panels = {f: load_panel(out_dir, snap_id, f, reg) for f in sorted(families)}
+    if with_text:
+        panels = {f: attach_text(p, out_dir, reg) for f, p in panels.items()}
+    return panels
 
 
 def config_blob(spec: TrialSpec) -> str:

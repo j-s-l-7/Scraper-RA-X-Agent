@@ -82,6 +82,7 @@ def make_context(
     key = (
         cfg["anchor_family"],
         cfg["universe"],
+        cfg.get("subset"),
         float(cfg["adv_floor_cr"]),
         cfg["features"],
         cfg["spec"],

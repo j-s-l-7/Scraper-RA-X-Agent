@@ -38,6 +38,9 @@ def train_cmd(
     report: Annotated[
         bool, typer.Option("--report/--no-report", help="Compute tables/gates and persist after.")
     ] = True,
+    text: Annotated[
+        bool, typer.Option("--text", help="MS1-text: run the registered text trials (#44-45) + control arms only.")
+    ] = False,
 ) -> None:
     """Fit the pre-registered 1Y trials (walk-forward 2019-2024) [+ CPCV]; refuses an unregistered config hash."""
     _limit_threads()
@@ -60,6 +63,9 @@ def train_cmd(
     specs = load_family(family)
     snap_id = snap or latest_snap(settings.data_dir)
     only = {t.strip() for t in trials.split(",") if t.strip()} or None
+    if text:
+        only = {s.trial_id for s in specs if s.config.get("subset")}
+        report = False
     with Writer.from_settings(settings).connect() as conn:
         ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in specs}
         rr = RunRegistry(conn)
@@ -67,12 +73,14 @@ def train_cmd(
         run = rr.start("train", config_hash=meth.config_hash, snap_id=snap_id, params=params, force=True)
     run_id = run.run_id
     console.print(f"run {run_id}: family {family}, snapshot {snap_id}, cpcv={cpcv}")
-    panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in specs}, reg)
+    panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in specs}, reg, with_text=text)
     t0 = time.perf_counter()
     seconds: dict[str, float] = {}
 
     def on_done(o) -> None:
         seconds[o.spec.trial_id] = round(o.seconds, 1)
+        if o.spec.trial_id not in ids:  # a protocol control arm is not a trial
+            return
         with Writer.from_settings(settings).connect() as c:
             c.execute(
                 "update ideation.experiment_trial set status = %s, run_id = %s where trial_id = %s",
@@ -134,3 +142,29 @@ def report_cmd(
         ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in specs}
     panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in specs}, reg)
     finalize(settings, family, snap_id, None, specs, panels, reg, ids, persist=persist, leakage_green=leakage_green)
+
+
+@backtest_app.command("text")
+def text_cmd(
+    family: Annotated[str, typer.Option()] = "1Y-june",
+    snap: Annotated[str, typer.Option()] = "",
+    persist: Annotated[bool, typer.Option("--persist/--no-persist")] = True,
+) -> None:
+    """MS1-text: paired statistics, report and persistence of trials #44-45 (no refits)."""
+    _limit_threads()
+    from ideation.bakeoff.driver import load_panels
+    from ideation.bakeoff.text import text_report
+    from ideation.cli import _init
+    from ideation.db.writer import Writer
+    from ideation.features.registry import load_registry
+    from ideation.trials.registry import assert_registered, load_family
+
+    settings = _init()
+    reg = load_registry(settings.config_dir)
+    specs = load_family(family)
+    snap_id = snap or latest_snap(settings.data_dir)
+    tspecs = [s for s in specs if s.config.get("subset")]
+    with Writer.from_settings(settings).connect() as conn:
+        ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in tspecs}
+    panels = load_panels(settings.data_dir, snap_id, {s.config["anchor_family"] for s in tspecs}, reg, with_text=True)
+    text_report(settings, family, snap_id, None, specs, panels, ids, persist=persist)

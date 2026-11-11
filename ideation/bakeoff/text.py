@@ -62,7 +62,7 @@ def paired(a: pd.Series, b: pd.Series, anchors: list[pd.Timestamp]) -> dict[str,
 
 
 def analyse(
-    specs: list[TrialSpec], panels: dict[str, Panel], root: Path
+    specs: list[TrialSpec], panels: dict[str, Panel], root: Path, *, only: set[str] | None = None, family_n: int = 50
 ) -> tuple[dict[str, dict[str, Any]], dict[str, RP.TD]]:
     """Per text trial: IC series of the text model, its control and the full-universe model restricted to the covered
     names; paired deltas; CPCV means. ``tds`` holds the text trials (for persistence)."""
@@ -70,7 +70,7 @@ def analyse(
     out: dict[str, dict[str, Any]] = {}
     tds: dict[str, RP.TD] = {}
     for spec in specs:
-        if not is_text(spec):
+        if not is_text(spec) or (only is not None and spec.trial_id not in only):
             continue
         panel = panels[spec.config["anchor_family"]]
         txt = _td(spec, panel, root)
@@ -105,7 +105,7 @@ def analyse(
             mc = cc.groupby("anchor")["ic"].mean()
             res["cpcv"] = {"text": float(mt.mean()), "ctrl": float(mc.mean()), "anchors": len(mt)}
         out[spec.trial_id] = res
-        txt.stats = RP.trial_stats(txt, 50)
+        txt.stats = RP.trial_stats(txt, family_n)
         txt.stats["dsr_ic"] = {"dsr": float("nan")}
         txt.stats["dsr_spread"] = {"dsr": float("nan")}
         txt.stats["selection_9010"] = None
@@ -161,7 +161,8 @@ def text_report(
     panels: dict[str, Panel], ids: dict[str, int], *, persist: bool = True,
 ) -> dict[str, Any]:  # fmt: skip
     t0 = time.perf_counter()
-    res, tds = analyse(specs, panels, settings.data_dir)
+    txt_ids = {s.trial_id for s in specs if s.config.get("subset") == "text_covered"}
+    res, tds = analyse(specs, panels, settings.data_dir, only=txt_ids, family_n=len(specs))
     cov = coverage_table(next(iter(panels.values())))
     text = render(res, cov, snap_id, len(specs))
     d = settings.data_dir / "reports" / "ms1"

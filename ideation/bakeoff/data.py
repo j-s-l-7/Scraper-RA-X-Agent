@@ -65,28 +65,48 @@ def family_anchors(
 
 TEXT_FILE = "features_text.parquet"
 TEXT_FLAGS = ("isna_text", "isna_text_prev", "isna_ppt")
+ANNUAL_FILE = "features_annual_text.parquet"
+ANNUAL_FLAGS = ("isna_ar", "isna_ar_prev")
+TREND_FILE = "features_text_trend.parquet"
+TREND_FLAGS = ("isna_trend",)
+SUBSET_FLAG = {"text_covered": "isna_text", "annual_covered": "isna_ar", "trend_covered": "isna_trend"}
+"""Trial ``subset`` -> the coverage flag that must be 0 (the subset is cut BEFORE R1, 05 §7.3)."""
+
+
+def _attach(
+    panel: Panel, out_dir: Path, reg: Registry, file: str, sets: list[str], flags: tuple[str, ...], avail_col: str
+) -> Panel:
+    """Join one PIT text-type feature file (raw columns only, never ``_rg``) and its coverage flags onto the panel.
+    A name without a row counts as uncovered (flag = 1). The availability of every joined row is checked against
+    its anchor, and only the panel's own anchors (June 2016..2024) are joined."""
+    txt = pd.read_parquet(out_dir / file)
+    txt["anchor"] = pd.to_datetime(txt["anchor"]).dt.date
+    txt = txt[txt["anchor"].isin(set(panel.anchors))]
+    avail = pd.to_datetime(txt[avail_col])
+    if (avail.notna() & (avail > pd.to_datetime(txt["anchor"]))).any():
+        raise ValueError(f"{file}: feature available after its anchor")
+    cols = [n for n in reg.names(sets=sets) if n in txt.columns]
+    txt = txt[["anchor", "security_id", *cols, *flags]]
+    frame = panel.frame.merge(txt, on=["anchor", "security_id"], how="left", validate="1:1")
+    for c in flags:
+        frame[c] = frame[c].fillna(1).astype(int)
+    files = {**panel.files, file: sha256_file(out_dir / file)}
+    return Panel(panel.family, panel.snap_id, frame, panel.anchors, panel.label_end, files)
 
 
 def attach_text(panel: Panel, out_dir: Path, reg: Registry) -> Panel:
-    """Panel with PT2's raw text columns and the coverage flags (MS1-text, 05 §7.3).
+    """Panel with PT2's raw text columns and the coverage flags (MS1-text, 05 §7.3)."""
+    return _attach(panel, out_dir, reg, TEXT_FILE, ["text"], TEXT_FLAGS, "text_available_from")
 
-    Raw columns only (never the ``_rg`` copies); a name without a row in the text file counts as uncovered
-    (``isna_text`` = 1). The availability of every joined row is checked against the anchor, and only the panel's own
-    anchors (June 2016..2024) are joined, so the 2025/2026 text rows never enter.
-    """
-    txt = pd.read_parquet(out_dir / TEXT_FILE)
-    txt["anchor"] = pd.to_datetime(txt["anchor"]).dt.date
-    txt = txt[txt["anchor"].isin(set(panel.anchors))]
-    avail = pd.to_datetime(txt["text_available_from"])
-    if (avail.notna() & (avail > pd.to_datetime(txt["anchor"]))).any():
-        raise ValueError("text feature available after its anchor")
-    cols = [n for n in reg.names(sets=["text"]) if n in txt.columns]
-    txt = txt[["anchor", "security_id", *cols, *TEXT_FLAGS]]
-    frame = panel.frame.merge(txt, on=["anchor", "security_id"], how="left", validate="1:1")
-    for c in TEXT_FLAGS:
-        frame[c] = frame[c].fillna(1).astype(int)
-    files = {**panel.files, TEXT_FILE: sha256_file(out_dir / TEXT_FILE)}
-    return Panel(panel.family, panel.snap_id, frame, panel.anchors, panel.label_end, files)
+
+def attach_annual(panel: Panel, out_dir: Path, reg: Registry) -> Panel:
+    """PT3: the 10 annual-report columns and ``isna_ar`` / ``isna_ar_prev``."""
+    return _attach(panel, out_dir, reg, ANNUAL_FILE, ["annual"], ANNUAL_FLAGS, "ar_available_from")
+
+
+def attach_trend(panel: Panel, out_dir: Path, reg: Registry) -> Panel:
+    """PT3: the 3 multi-call trend columns and ``isna_trend``."""
+    return _attach(panel, out_dir, reg, TREND_FILE, ["text_trend"], TREND_FLAGS, "trend_last_available_from")
 
 
 def sha256_file(path: Path) -> str:
@@ -175,12 +195,13 @@ def build_matrix(
     """R1 on the trial's universe. ``raw_input`` (P1_UNIFIED) returns the winsorized raw columns instead of R1."""
     names = resolve_features(cfg, reg)
     rows = panel.universe_rows(universe_rule(cfg)).copy()
-    if cfg.get("subset") == "text_covered":
+    if cfg.get("subset") in SUBSET_FLAG:
         # 05 §7.3: the covered subset is cut BEFORE R1, so nothing is zero-filled into an uncovered name and the
         # per-anchor transform, the target and the percentile all live inside the covered names.
-        if "isna_text" not in rows.columns:
-            raise KeyError("subset text_covered needs the text columns (data.attach_text)")
-        rows = rows[rows["isna_text"] == 0].reset_index(drop=True)
+        flag = SUBSET_FLAG[cfg["subset"]]
+        if flag not in rows.columns:
+            raise KeyError(f"subset {cfg['subset']} needs the {flag} column (data.attach_*)")
+        rows = rows[rows[flag] == 0].reset_index(drop=True)
     elif cfg.get("subset"):
         raise ValueError(f"unknown subset {cfg['subset']!r}")
     bcols = [n for n in names if n in reg.broadcast_cols()]

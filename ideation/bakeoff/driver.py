@@ -196,15 +196,23 @@ def _rank_cols(oos: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_panels(
-    data_dir: Path, snap_id: str, families: set[str], reg: Registry | None = None, *, with_text: bool = False
+    data_dir: Path,
+    snap_id: str,
+    families: set[str],
+    reg: Registry | None = None,
+    *,
+    with_text: bool = False,
+    with_pt3: bool = False,
 ) -> dict[str, Panel]:
-    from ideation.bakeoff.data import attach_text
+    from ideation.bakeoff.data import attach_annual, attach_text, attach_trend
 
     reg = reg or load_registry()
     out_dir = data_dir / "outputs" / snap_id
     panels = {f: load_panel(out_dir, snap_id, f, reg) for f in sorted(families)}
     if with_text:
         panels = {f: attach_text(p, out_dir, reg) for f, p in panels.items()}
+    if with_pt3:
+        panels = {f: attach_trend(attach_annual(p, out_dir, reg), out_dir, reg) for f, p in panels.items()}
     return panels
 
 

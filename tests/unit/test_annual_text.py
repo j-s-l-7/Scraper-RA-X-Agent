@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """PT3 unit tests: annual-report extraction rules, T-24-style availability, the PIT annual features and multi-call
 trends on a synthetic store (no-fill, windows, poison_after = synthetic future-poison)."""
 

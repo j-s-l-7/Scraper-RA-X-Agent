@@ -1757,3 +1757,117 @@ tactical baseline ships by the frozen rule because ENS_RANKAVG_T fails the adver
 | `uv run pytest -p no:xdist -m lake` | 115 passed (569 s); includes `tests/lake/test_ms3_lake.py` (holdout still sealed, `--holdout` refuses, report label reader refuses a sealed anchor) |
 | `uv run python scripts/secret_scan.py --all` | clean |
 | report runtime | 332 s (<= 900 s) |
+
+## P6: predict + ideas engine (branch `phase-6-ideas`, worktree `../wt-p6`)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`, live anchor **2026-11-05** (last good session in the snapshot). **No migration**
+(040-044 unused: `prediction`, `idea`, `v_latest_ideas`, `run` already exist). `ideation init-db` was never run from the worktree.
+`predict` and `ideas` rows were written to the live `ideation` schema through the guarded writer (runs 339-346; superseded duplicates are
+`--force` re-runs made while testing; the newest ok pair is what `v_latest_ideas` shows). Not merged. The holdout stays sealed.
+
+### Model state shown (binding, from MS1-MS3)
+Shipped, from the registered trials, no fit and no label needed: **1Y = P1_COMP_EW** (trial 2029), **tactical = T_EW_SIGNPRIOR** (trial 2001).
+Columns labelled "research challenger, unpromoted": **P1_UNIFIED_XS** (1Y, composite, no fit) and **ENS_RANKAVG_T** (tactical, 9 learners refitted + the baseline).
+Nothing in selection, rank, conviction or band uses a challenger (unit-tested: perturbing the challenger columns leaves the lists unchanged).
+
+### What was built
+- `ideation/predict/` (live-only, scanned by the static ban + clock tests): `live.py` (in-memory live build: `build_universe` -> `build_fundamental`
+  -> `build_universe(feature_complete=...)` -> `tech_build.build_view`; PitStore in `live` mode, anchor = `calendar.good[-1]`, no clock),
+  `score.py` (scores through **`bakeoff.data.build_matrix` + `bakeoff.models.build_model`** for 1Y and **`tactical.data.build_design` +
+  `tactical.engine.build_model`** for 3M; exact linear contributions; beta/vol-neutral ranks reusing `tactical.diagnostics.residualize`; OOD guard),
+  `cal.py` (R5 nested isotonic calibration + R6 Mondrian conformal band from the stored counted OOS), `assemble.py` (risk flags, regime/RRG context),
+  `challenger.py`, `persist.py` (`ideation.prediction`), `cli.py` (`ideation predict`).
+- `ideation/ideas/` (live-only; never imported by backtest-path packages): `select.py` (filters, per-group cap, avoid list, conviction via `rank.conviction`,
+  continuity), `overlay.py` (X-Agent/expert hook: `ExpertOverlay` Protocol with the 04 §5 `effects()` columns and a `NullOverlay`; no sqlite, no expert code),
+  `llm_summary.py` (optional `--llm-summary`; `OPENAI_API_KEY`/`OPENAI_MODEL` from the environment only, stdlib HTTPS, injectable transport, label
+  "live, unvalidated, LLM-generated", excerpt cap, never in an exception message), `render.py` (markdown), `persist.py` (`ideation.idea`), `cli.py` (`ideation ideas`).
+  Two `add_typer` lines in `ideation/cli.py`; `config/ideas.yaml` (list sizes and idea-stage filters; adding a yaml changes `config_hash`, so earlier
+  run keys do not match new ones).
+- Behaviour:
+  - Ranking = the shipped score only. Ideation Score IS = round(100 p). Expected return = nested calibration alpha(p), **in excess of the universe median over the
+    horizon** (the market leg pi is P7's; `prediction.exp_ret` is left NULL, `idea.exp_ret_*` hold the excess and its 80% band, `thesis.units` says so).
+  - Calibration history = every **counted, unsealed** OOS anchor of the shipped trial (1Y: June 2020-2024, 5 anchors; 3M: 138 monthly anchors 2014-01..2025-06);
+    `fit_live` refuses a sealed anchor (`CalibrationError`). The research table `rank_calibration` is not touched; the live table and bands are in `run.stats`.
+  - Conviction: `rank.conviction` as is (High p>=0.95, Medium p>=0.90, notches for c<0.6, risk flag, regime misalignment, FIN; financials capped at Medium even
+    with a consensus boost). OOD (IsolationForest, 300 trees, seed 0, P99 of the training window; 1Y = June 2022-24, 3M = 36 monthly anchors to 2025-06): size 0,
+    "unscorable", listed separately, never in `ideation.idea`.
+  - Every idea shows beta_252, annualised vol, and the **beta/vol-neutral rank** (BVLS stored; BV also stored in `thesis`): residual of Phi^-1(p) on beta, rvol_63, idio_vol
+    (+ ln mcap, ln ADV63), the MS2 recommendation for BL (P7). No calibration is fitted on the neutral rank.
+  - Explanations: the composites are linear, so `w_f x_f` on the R1 columns is exact (asserted to sum to the score), grouped by registry category. No Saabas.
+  - Risk flags implemented (what the live columns support): nd_ebitda > P90, negative CFO/NP (latest FY), promoter -5 pp over 1Y (the ownership feature is yearly,
+    B1), >12% one-session move in the last 7 sessions, financial layout, mcap methods disagree.
+  - Continuity vs the previous ok ideas run of the same horizon (new / continuing; dropped names listed). Default is both horizons in ONE run because
+    `v_latest_ideas` shows only the newest ok ideas run; a single-horizon run would hide the other horizon.
+  - Idempotent: `run_key` over (kind, as_of, snap, config_hash, params incl. the consumed predict run id); an identical rerun prints "skipped"; `--force` supersedes.
+
+### Commands and runtimes (Mac shared with PT3; `nice -n 10`, 4 threads)
+| command | result | wall |
+|---|---|---|
+| `ideation predict --no-ens` | 3,601 prediction rows (1,828 1Y scored / 1,950 3M scored; unmapped names stay in R1 but are not persisted) | 46 s (live build 21 s) |
+| `ideation predict` (ENS refit, 9 learners on the last 36 unsealed anchors) | + challenger | 208 s (RF 83 s, MLP 49 s, SVR 14 s, rest < 5 s); cached under `IDEATION_DATA_DIR/predict` afterwards (rerun 50 s) |
+| `ideation ideas` | 25 long + 15 avoid per horizon; 2 markdown files | 6 s |
+| second `ideation ideas` | "skipped: identical ideas run already ok" | 1 s |
+Outputs: `~/Ideation-data/reports/2026-11-05/ideas_1y.md`, `ideas_tactical.md` (not in git).
+
+### Live-path parity and PIT (lake tests, `tests/lake/test_p6_lake.py`)
+- Built through the live path at a historical anchor (2024-06-28), P1_COMP_EW and T_EW_SIGNPRIOR reproduce the stored OOS `score` and `p` name by name
+  (1Y max |dscore| = 0, 3M 5.7e-8 = float32 storage) on all 1,588 / 1,725 rows: the live path is the backtest code.
+- Poisoning every row available after the anchor leaves the live cross-section frames identical (T-01 for the live path).
+- Shipped scoring reads no label (`load_labels` AUDIT empty); the only label read is the challenger fit, through `load_labels(unsealed_only(...))`, anchors <= 2025-06-30.
+
+### Sample ideas table, 2026-11-05 (top 10 each; full lists in the markdown)
+Regime: trend Transition, volatility Stressed, breadth Neutral. IS = Ideation Score; neutral = BVLS neutral rank; "chal" = research challenger, unpromoted.
+
+1Y, P1_COMP_EW (calibrated top-minus-bottom decile spread 0.5 pp of excess vs an 80% band about 124 pp wide; decile hit rate ~51%):
+| # | Symbol | Group | IS | Conv | Excess (1Y) | 80% band | Beta | Vol | Neutral | chal IS (P1_UNIFIED_XS) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | WAAREEINDO | Capital Goods | 100 | High | 7.9% | -35% to 86% | 1.11 | 42% | 100 | 95 |
+| 2 | BBTC | FMCG | 100 | Medium | 7.9% | -35% to 86% | 1.28 | 43% | 100 | 100 |
+| 3 | WEBELSOLAR | Capital Goods | 100 | Medium | 7.9% | -35% to 86% | 1.55 | 44% | 100 | 77 |
+| 4 | CRIZAC | Consumer Services | 100 | Medium | 7.9% | -35% to 86% | 1.50 | 41% | 100 | 78 |
+| 5 | CASTROLIND | Oil, Gas & Fuels | 100 | High | 7.9% | -35% to 86% | 0.31 | 18% | 99 | 70 |
+| 6 | BLS | Consumer Services | 100 | Medium | 7.9% | -35% to 86% | 1.69 | 38% | 99 | 79 |
+| 7 | TCS | IT | 100 | High | 7.9% | -35% to 86% | 0.61 | 31% | 98 | 71 |
+| 8 | NMDC | Metals & Mining | 100 | High | 7.9% | -35% to 86% | 1.02 | 25% | 99 | 86 |
+| 9 | SWARAJENG | Capital Goods | 99 | High | 7.9% | -35% to 86% | 0.82 | 24% | 99 | 61 |
+| 10 | KPEL | Power | 99 | Medium | 7.9% | -35% to 86% | 1.58 | 46% | 99 | 81 |
+
+Tactical 3M, T_EW_SIGNPRIOR (spread 3.2 pp vs band about 39 pp; decile hit ~56%; low-beta tilt visible in the beta column):
+| # | Symbol | Group | IS | Conv | Excess (3M) | 80% band | Beta | Vol | Neutral | chal IS (ENS_RANKAVG_T) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | SBC | Textiles | 100 | Medium | 2.8% | -16% to 25% | 0.34 | 38% | 98 | 90 |
+| 2 | GCSL | Financial Services | 100 | Medium (FIN cap) | 2.8% | -16% to 25% | 0.37 | 40% | 99 | 49 |
+| 3 | SHREEJISPG | Services | 100 | High | 2.8% | -16% to 25% | 1.10 | 37% | 100 | 86 |
+| 4 | CUPID | FMCG | 99 | High | 2.8% | -16% to 25% | 0.78 | 53% | 99 | 32 |
+| 5 | ANANDRATHI | Financial Services | 99 | Medium (FIN cap) | 2.8% | -16% to 25% | 0.42 | 19% | 96 | 60 |
+| 6 | TFCILTD | Financial Services | 99 | Medium (FIN cap) | 2.8% | -16% to 25% | 1.09 | 38% | 99 | 70 |
+| 7 | SHILPAMED | Healthcare | 99 | Medium | 2.8% | -16% to 25% | 0.99 | 47% | 99 | 90 |
+| 8 | MENONBE | Autos | 99 | Medium (cooling-off flag) | 2.8% | -16% to 25% | 1.30 | 63% | 100 | 29 |
+| 9 | SETL | Capital Goods | 99 | Medium | 2.8% | -16% to 25% | 1.41 | 53% | 99 | 69 |
+| 10 | SPECTRUM | Capital Goods | 99 | Medium | 2.8% | -16% to 25% | 0.12 | 51% | 98 | 48 |
+OOD (size 0, unscorable) among the liquid names: 7 (1Y) and 2 (3M); 13 per horizon over the whole scored universe.
+
+### Deviations from the plan and why
+1. **No Saabas / tree contributions**: the shipped models are linear composites, so exact `w x` contributions are used (the plan's Saabas is for a tree champion that does not exist).
+2. **Expected return is excess over the universe median, not pi + alpha**: pi (market leg) belongs to the BL phase; `prediction.exp_ret` is NULL.
+3. **Calibration is flat for 1Y** (5 anchors; baseline IC 0.029): alpha is about 7.4-7.9% for every decile and the band is -35% to +86%. The positive level is the skew of mean-minus-median
+   excess, not information. The avoid list therefore also shows a positive "excess". The markdown prints the spread-vs-band reading guide above the tables.
+4. **Risk flags**: "negative CFO in 2 of the last 3 FYs" is the latest-FY `cfo_np < 0`; "promoter -5 pp over 4 quarters" is the yearly `prom_chg_1y`; exceptional-item share and the
+   price-based flags beyond cooling-off are not implemented (no PIT column for them).
+5. **Sector context** is the current RRG quadrant/ratios of the industry group; the 8-week trail, 3M group RS and FPI sector flow are not shown. Invalidation lacks a next-results date
+   (future earnings dates are not PIT-visible by design) and uses the Balanced 25% stop only.
+6. **ADV20** (raw bhav turnover, 20 sessions) is used for the liquidity filter; mcap floor is the PIT mcap.
+7. **ENS_RANKAVG_T is refitted live on the last 36 unsealed monthly anchors (2022-07..2025-06)**, i.e. about 16 months stale until the holdout is unsealed, and it has no live calibration or band.
+   The live challenger is not the MS2 OOS object (single refit, no purge/embargo needed since the test anchor is far away).
+8. Predict reads the stored feature parquet only to build the OOD reference matrices; the 1Y reference uses the last three June anchors 2022-24, the 3M reference the last 36 monthly anchors.
+9. `v_latest_ideas` was not changed (no migration); the two-horizon-in-one-run default works around its "newest run" semantics.
+10. `predict` joins the static-ban and clock scans (`completeness` is a banned token: the column is `feat_complete_share`).
+
+### Risks
+- The 1Y ranking is close to uninformative (IC 0.029 baseline, flat calibration, decile hit rates 47-54%); the tactical baseline carries a low-beta/low-vol tilt (corr(score, beta) about -0.3, see MS2 diagnostics); read neutral rank and the guide line.
+- Calibration and conformal bands rest on 5 (1Y) overlapping annual anchors; exchangeability is violated (disclosed in the report footer).
+- The live regime is "Stressed" volatility: 1Y names with beta > 1.2 are notched down (regime misalignment), so conviction High is rare there.
+- The live build trusts the snapshot's last session; `predict` does not refresh the snapshot (a stale snapshot gives a stale anchor, `doctor` reports freshness).
+- LLM summary was NOT exercised against the API (no key use in tests/by design); only the request building, parsing, caps and failure paths are tested with a fake transport.
+- The overlay is an interface only; 04's expert module (migrations 060-064) will implement `ExpertOverlay`; the exclude/boost/conflict semantics are unit-tested with a fake provider.
+- `tests/lake/test_e1_ddl.py::test_register_then_train_guard` can fail in the shared ledger (known MS2 interaction), unrelated to P6.

@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ideation.ideas.select import HORIZON_LABEL
@@ -74,6 +75,22 @@ def idea_detail(r: Any, llm: dict[int, dict[str, Any]] | None) -> list[str]:
     return out
 
 
+def spread_line(calib: dict[str, Any]) -> str:
+    """Honest reading guide: the calibrated top-minus-bottom decile spread against the typical band width."""
+    a = calib.get("alpha_iso_by_decile", {})
+    lo, hi = calib.get("band_lo_by_decile", {}), calib.get("band_hi_by_decile", {})
+    if "10" not in a and 10 not in a:
+        return "Calibration spread: n/a."
+    g = lambda d, k: d.get(str(k), d.get(k))  # noqa: E731 (json keys are strings after a DB round trip)
+    spread = g(a, 10) - g(a, 1)
+    width = np.median([g(hi, k) - g(lo, k) for k in range(1, 11) if g(hi, k) is not None])
+    return (
+        f"Reading guide: the calibrated top-minus-bottom decile spread is {100 * spread:.1f} pp of excess return, against an "
+        f"80% band about {100 * width:.0f} pp wide. A spread this small relative to the band means the ranking carries "
+        "little information about any single name; treat IS as a weak tilt, not a forecast."
+    )
+
+
 def render_horizon(
     horizon: str, as_of: date, model: str, sel: dict[str, pd.DataFrame], dropped: pd.DataFrame | None,
     regime: dict[str, str], calib: dict[str, Any], llm: dict[int, dict[str, Any]] | None, predict_run: int,
@@ -84,6 +101,7 @@ def render_horizon(
          "100 x percentile of the score within the scored universe. Excess return is relative to the universe median "
          f"over {horizon}, calibrated on {len(calib.get('anchors', []))} counted OOS anchors "
          f"({calib.get('n_rows', 0)} name-observations).", "",
+         spread_line(calib), "",
          f"Regime: trend {regime.get('trend')}, volatility {regime.get('vol')}, breadth {regime.get('breadth')}"
          f"{', narrow rally' if regime.get('narrow_rally') == 'true' else ''}"
          f"{'; ' + regime['macro'] if regime.get('macro') else ''}.", "",

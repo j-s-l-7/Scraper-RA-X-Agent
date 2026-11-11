@@ -79,10 +79,10 @@ def assemble(
     xc = 1.0 - sc.X[flag_cols].mean(axis=1).to_numpy() if flag_cols else np.ones(len(f))
     if sc.horizon == "1Y":
         f["c_conf"] = f["c_i"].fillna(pd.Series(xc, index=f.index))
-        f["completeness"] = f["feature_complete"].fillna(pd.Series(xc, index=f.index))
+        f["feat_complete_share"] = f["feature_complete"].fillna(pd.Series(xc, index=f.index))
     else:
         f["c_conf"] = xc
-        f["completeness"] = xc
+        f["feat_complete_share"] = xc
     f["flags"] = risk_flags(f)
     q = rrg[rrg["group_type"] == "industry_group"].set_index("group_code")[["quadrant", "rs_ratio", "rs_mom"]]
     f = f.join(q, on="industry_group")
@@ -90,7 +90,7 @@ def assemble(
     c = contributions(sc)
     f["drivers"] = top_drivers(c, reg) if c is not None else [None] * len(f)
     if c is not None:
-        f["contrib_sum_err"] = (c.sum(axis=1).to_numpy() - sc.frame["score"].to_numpy())
+        f["contrib_sum_err"] = c.sum(axis=1).to_numpy() - sc.frame["score"].to_numpy()
     if chal is not None:
         f = f.merge(chal, on="security_id", how="left")
     return f

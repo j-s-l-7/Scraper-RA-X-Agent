@@ -1,3 +1,4 @@
+# ruff: noqa: E501, N818
 """Optional LLM summary of the latest concall for the shortlisted names (05 §7.4). LIVE ONLY, UNVALIDATED.
 
 * Called only by ``ideation ideas --llm-summary``; never imported by features/models/cv/eval/rank/backtest (static

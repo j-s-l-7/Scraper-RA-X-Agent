@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation ideas [--horizon both] [--top 25] [--avoid 15] [--llm-summary]`` (01 §5, 01 §8.1).
 
 Reads the latest ok ``predict`` run, applies the idea-stage filters, selects the lists, assigns conviction, joins the
@@ -25,7 +26,9 @@ console = Console(width=None if sys.stdout.isatty() else 200)
 HORIZONS = {"both": ("1Y", "3M"), "1y": ("1Y",), "3m": ("3M",), "tactical": ("3M",)}
 
 
-def concall_excerpts(settings: Any, store: Any, anchor: date, company_ids: list[int]) -> dict[int, tuple[str, str | None]]:
+def concall_excerpts(
+    settings: Any, store: Any, anchor: date, company_ids: list[int]
+) -> dict[int, tuple[str, str | None]]:
     """Latest and prior transcript text per company (PIT: ``available_from <= anchor``), page-joined, cover pages kept."""
     from ideation.text.reader import read_pages
 
@@ -50,7 +53,9 @@ def ideas_cmd(
     horizon: Annotated[str, typer.Option(help="both | 1y | 3m (tactical)")] = "both",
     top: Annotated[int, typer.Option(help="Long ideas per horizon.")] = 0,
     avoid: Annotated[int, typer.Option(help="Avoid-list size.")] = 0,
-    llm_summary: Annotated[bool, typer.Option("--llm-summary", help="OPTIONAL: LLM call summaries (key from env; live, unvalidated).")] = False,
+    llm_summary: Annotated[
+        bool, typer.Option("--llm-summary", help="OPTIONAL: LLM call summaries (key from env; live, unvalidated).")
+    ] = False,
     force: Annotated[bool, typer.Option("--force", help="Recompute even if an identical run succeeded.")] = False,
 ) -> None:
     from dataclasses import replace
@@ -117,8 +122,12 @@ def ideas_cmd(
                 persist.write_ideas(conn, rows)
                 model = str(pred["model"].iloc[0]) if len(pred) else "?"
                 calib = pstats["horizons"][h]["calibration"]
-                md = render.render_horizon(h, as_of, model, sel, dropped if len(dropped) else None, regime, calib, llm, pred_run)
-                out = settings.data_dir / "reports" / as_of.isoformat() / f"ideas_{'1y' if h == '1Y' else 'tactical'}.md"
+                md = render.render_horizon(
+                    h, as_of, model, sel, dropped if len(dropped) else None, regime, calib, llm, pred_run
+                )
+                out = (
+                    settings.data_dir / "reports" / as_of.isoformat() / f"ideas_{'1y' if h == '1Y' else 'tactical'}.md"
+                )
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(md, encoding="utf-8")
                 reports[h] = out

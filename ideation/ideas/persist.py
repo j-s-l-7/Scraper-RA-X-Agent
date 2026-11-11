@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation.idea`` persistence, prior-run lookup for continuity, and the latest predict run."""
 
 from __future__ import annotations

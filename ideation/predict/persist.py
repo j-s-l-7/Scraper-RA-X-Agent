@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Persistence of live predictions into ``ideation.prediction`` (existing table) and read-back for the ideas stage.
 
 One row per (run, horizon, company). Names without a ``company_id`` (unmapped U_score_T names) stay in R1 and the
@@ -17,7 +18,7 @@ from ideation.predict.assemble import to_jsonable
 COLUMNS = ["run_id", "model_id", "horizon", "anchor", "company_id", "symbol", "score", "rank_pct", "alpha", "exp_ret", "lo",
            "hi", "ood_score", "ood", "c_conf", "contrib"]  # fmt: skip
 CONTRIB_KEYS = ["security_id", "industry_group", "sector", "layout", "mcap_pit_cr", "adv20_cr", "last_close", "series",
-                "sma50", "completeness", "ideation_score", "decile", "hit_rate", "beta", "vol", "neutral_p_bv",
+                "sma50", "feat_complete_share", "ideation_score", "decile", "hit_rate", "beta", "vol", "neutral_p_bv",
                 "neutral_p_bvls", "flags", "quadrant", "rs_ratio", "rs_mom", "regime_misaligned", "drivers"]  # fmt: skip
 CHAL_PREFIX = "chal_"
 
@@ -36,13 +37,15 @@ def contrib_json(r: Any, model: str, units: str) -> str:
     c["drivers"] = r.drivers
     c["model"] = model
     c["units"] = units
-    chal = {k[len(CHAL_PREFIX):]: to_jsonable(getattr(r, k)) for k in r._fields if k.startswith(CHAL_PREFIX)}
+    chal = {k[len(CHAL_PREFIX) :]: to_jsonable(getattr(r, k)) for k in r._fields if k.startswith(CHAL_PREFIX)}
     if chal:
         c["challenger"] = {"label": "research challenger, unpromoted", **chal}
     return json.dumps(c, allow_nan=False)
 
 
-def prediction_rows(df: pd.DataFrame, run_id: int, model_id: int | None, horizon: str, anchor: Any, model: str) -> list[tuple]:
+def prediction_rows(
+    df: pd.DataFrame, run_id: int, model_id: int | None, horizon: str, anchor: Any, model: str
+) -> list[tuple]:
     units = f"excess return vs the universe median over {horizon}; the market leg (pi) is added in the portfolio phase"
     rows = []
     d = dedupe_company(df)
@@ -59,8 +62,24 @@ def write_predictions(conn: Any, rows: list[tuple]) -> int:
 def read_predictions(conn: Any, run_id: int, horizon: str) -> pd.DataFrame:
     cur = conn.execute(
         "select model_id, anchor, company_id, symbol, score, rank_pct, alpha, lo, hi, ood_score, ood, c_conf, contrib"
-        " from ideation.prediction where run_id = %s and horizon = %s order by company_id", (run_id, horizon))
-    cols = ["model_id", "anchor", "company_id", "symbol", "score", "p", "alpha", "lo", "hi", "ood_score", "ood", "c_conf", "contrib"]
+        " from ideation.prediction where run_id = %s and horizon = %s order by company_id",
+        (run_id, horizon),
+    )
+    cols = [
+        "model_id",
+        "anchor",
+        "company_id",
+        "symbol",
+        "score",
+        "p",
+        "alpha",
+        "lo",
+        "hi",
+        "ood_score",
+        "ood",
+        "c_conf",
+        "contrib",
+    ]
     df = pd.DataFrame(cur.fetchall(), columns=cols)
     ex = pd.DataFrame(list(df["contrib"])) if len(df) else pd.DataFrame()
     out = pd.concat([df.drop(columns=["contrib"]), ex], axis=1)

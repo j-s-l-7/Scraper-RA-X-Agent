@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Live calibration (R5) and conformal band (R6) from the stored OOS predictions of the shipped model.
 
 The history is every **counted, unsealed** OOS anchor of the trial (``rank.calibrate.fit`` with ``counted=`` and
@@ -13,7 +14,6 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 from ideation.labels.loader import is_sealed

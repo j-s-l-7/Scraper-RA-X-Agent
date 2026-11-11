@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Idea selection from stored predictions (01 §5 steps 2-6). Ranking is the shipped model's score only.
 
 Regime, RRG, overlays and risk flags change **conviction and narrative**, never the order. OOD names are listed
@@ -31,24 +32,24 @@ class IdeasConfig:
     min_mcap_cr: float = 500.0
     min_adv_cr: float = 2.0
     min_price: float = 20.0
-    min_completeness: float = 0.6
+    min_feat_complete: float = 0.6
     series: tuple[str, ...] = ("EQ",)
 
     @classmethod
     def from_methodology(cls, data: dict[str, Any]) -> IdeasConfig:
         d = data.get("ideas", {})
-        keys = ("top_n", "avoid_n", "max_per_group", "min_mcap_cr", "min_adv_cr", "min_price", "min_completeness")
+        keys = ("top_n", "avoid_n", "max_per_group", "min_mcap_cr", "min_adv_cr", "min_price", "min_feat_complete")
         return cls(**{k: d[k] for k in keys if k in d}, series=tuple(d.get("series", ("EQ",))))
 
 
 def liquid_mask(df: pd.DataFrame, cfg: IdeasConfig) -> pd.Series:
-    """Hard filters of 01 §5 step 2 (mcap, ADV20, price, series, completeness). OOD is handled separately."""
+    """Hard filters of 01 §5 step 2 (mcap, ADV20, price, series, feature completeness). OOD is handled separately."""
     return (
         (df["mcap_pit_cr"] >= cfg.min_mcap_cr)
         & (df["adv20_cr"] >= cfg.min_adv_cr)
         & (df["last_close"] >= cfg.min_price)
         & df["series"].isin(cfg.series)
-        & (df["completeness"] >= cfg.min_completeness)
+        & (df["feat_complete_share"] >= cfg.min_feat_complete)
         & df["company_id"].notna()
     ).fillna(False)
 

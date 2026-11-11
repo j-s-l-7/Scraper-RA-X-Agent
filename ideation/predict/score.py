@@ -1,3 +1,4 @@
+# ruff: noqa: E501, N803, N806
 """Score a live cross-section with the shipped composites through the backtest code (R1 -> model -> R3), plus
 exact linear contributions, beta/vol-neutral ranks and the OOD guard (01 §4.4).
 
@@ -171,7 +172,8 @@ def training_frame_1y(out_dir: Path, reg: Registry, anchors: Sequence[date]) -> 
 
     uni = pd.read_parquet(out_dir / UNIVERSE_FILE)
     uni = uni[uni["anchor"].isin(anchors) & uni["in_u_score"]][
-        ["anchor", "security_id", "in_u_score", "in_u_score_adv05", "in_u1000", "adv63_lakh", "mcap_pit_cr"]]
+        ["anchor", "security_id", "in_u_score", "in_u_score_adv05", "in_u1000", "adv63_lakh", "mcap_pit_cr"]
+    ]
     fund = pd.read_parquet(out_dir / FUND_FILE)
     fund = fund[fund["anchor"].isin(anchors)]
     fcols = [n for n in reg.names(source="features_fundamental.yaml") if n in fund.columns]
@@ -180,7 +182,9 @@ def training_frame_1y(out_dir: Path, reg: Registry, anchors: Sequence[date]) -> 
     tech = tech[tech["anchor"].isin(anchors)]
     tcols = [n for n in reg.names(sets=["tech", "regime"]) if n in tech.columns]
     frame = uni.merge(fund, on=["anchor", "security_id"], how="left", validate="1:1")
-    frame = frame.merge(tech[["anchor", "security_id", *tcols]], on=["anchor", "security_id"], how="left", validate="1:1")
+    frame = frame.merge(
+        tech[["anchor", "security_id", *tcols]], on=["anchor", "security_id"], how="left", validate="1:1"
+    )
     for c in reg.broadcast_cols():
         if c in frame.columns:
             frame[c] = frame.groupby("anchor")[c].transform("first")
@@ -225,7 +229,9 @@ def ood_guard_1y(out_dir: Path, reg: Registry, spec: TrialSpec) -> OodGuard:
 
 def ood_guard_3m(out_dir: Path, reg: Registry, spec: TrialSpec) -> OodGuard:
     anchors = last_anchors_3m(out_dir)
-    design: Design = build_design(training_frame_3m(out_dir, anchors), reg, "T0", adv_floor_cr=float(spec.config["adv_floor_cr"]))
+    design: Design = build_design(
+        training_frame_3m(out_dir, anchors), reg, "T0", adv_floor_cr=float(spec.config["adv_floor_cr"])
+    )
     return fit_ood(design.X, anchors)
 
 

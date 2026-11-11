@@ -22,7 +22,7 @@ from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
 BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime", "tactical",
-               "outcomes")  # fmt: skip
+               "outcomes", "predict")  # fmt: skip
 VENDOR_MODULES = ("ideation/features/events_vendor.py", "ideation/outcomes/analyst.py")
 BAN_ALLOWLIST: frozenset[str] = frozenset(VENDOR_MODULES)  # 05 O5: exactly one feature module + one outcome module
 IMPORT_RESTRICTED = ("features", "models", "universe", "regime")
@@ -34,7 +34,7 @@ OUTCOME_FREE = ("features", "models", "universe", "rank", "cv", "regime")
 OUTCOME_IMPORTS = ("ideation.outcomes",)
 OUTCOME_PKG_FORBIDDEN = ("ideation.models", "ideation.rank", "ideation.cv", "ideation.lake", "psycopg", "psycopg2")
 OUTCOME_WRITE_OK = {"ideation.outcome"}
-CLOCK_SCANNED = ("features", "labels", "universe", "regime", "outcomes")
+CLOCK_SCANNED = ("features", "labels", "universe", "regime", "outcomes", "predict")
 CLOCK_ATTRS = {("date", "today"), ("datetime", "now"), ("datetime", "utcnow"), ("datetime", "today"), ("time", "time"),
                ("Timestamp", "now"), ("Timestamp", "today")}  # fmt: skip
 

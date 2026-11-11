@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation predict [--horizon both|1y|3m] [--as-of latest]`` (01 §8.1, 05 §10.3 P6).
 
 Live feature build as of the latest snapshot session -> shipped model scores (P1_COMP_EW for 1Y, T_EW_SIGNPRIOR for
@@ -38,7 +39,9 @@ def _model_id(conn: Any, config_hash: str, horizon: str) -> int | None:
 def predict_cmd(
     horizon: Annotated[str, typer.Option(help="both | 1y | 3m (tactical)")] = "both",
     as_of: Annotated[str, typer.Option(help="latest or YYYY-MM-DD (snapped to a good session)")] = "latest",
-    ens: Annotated[bool, typer.Option("--ens/--no-ens", help="Refit and score the ENS_RANKAVG_T research challenger (minutes).")] = True,
+    ens: Annotated[
+        bool, typer.Option("--ens/--no-ens", help="Refit and score the ENS_RANKAVG_T research challenger (minutes).")
+    ] = True,
     force: Annotated[bool, typer.Option("--force", help="Recompute even if an identical run succeeded.")] = False,
 ) -> None:
     from ideation.db.writer import Writer
@@ -66,7 +69,7 @@ def predict_cmd(
               "models": {h: [specs[h][SHIPPED[h][1]].config_hash, specs[h][SHIPPED[h][2]].config_hash] for h in horizons}}  # fmt: skip
     out_dir = settings.data_dir / "outputs" / snap.snap_id
     t0 = time.perf_counter()
-    with Writer.from_settings(settings).connect() as conn:
+    with Writer.from_settings(settings).connect() as conn:  # noqa: SIM117
         with RunRegistry(conn).track("predict", config_hash=meth.config_hash, as_of=anchor, snap_id=snap.snap_id,
                                      params=params, force=force) as run:  # fmt: skip
             if run.skipped:
@@ -96,7 +99,9 @@ def predict_cmd(
                     ood = score.ood_guard_3m(out_dir, reg, spec)
                     chal, cinfo = None, {"model": chal_id, "skipped": "--no-ens"}
                     if ens:
-                        mem, cinfo = challenger.fit_ens(out_dir, settings.data_dir, reg, base, anchor, settings.config_dir)
+                        mem, cinfo = challenger.fit_ens(
+                            out_dir, settings.data_dir, reg, base, anchor, settings.config_dir
+                        )
                         chal = challenger.challenger_3m(mem, base)
                         cinfo["model"] = chal_id
                 df = assemble(sc, base, info, lc, ood, reg, ld.tech.labels, ld.tech.rrg, chal)

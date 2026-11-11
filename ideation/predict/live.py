@@ -58,10 +58,14 @@ def market_columns(view: PitView) -> pd.DataFrame:
     adv = raw.groupby("security_id")["turnover_lacs"].sum() / len(sessions) / LAKH_PER_CR
     out = pd.DataFrame({"last_close": last["close"], "series": last["series"], "adv20_cr": adv})
     adj = view.prices_adj(50)[["security_id", "date", "close_adj"]].sort_values(["security_id", "date"])
-    out["sma50"] = adj.groupby("security_id")["close_adj"].apply(lambda s: float(s.tail(50).mean()) if len(s) >= 40 else np.nan)
+    out["sma50"] = adj.groupby("security_id")["close_adj"].apply(
+        lambda s: float(s.tail(50).mean()) if len(s) >= 40 else np.nan
+    )
     adj["r"] = adj.groupby("security_id")["close_adj"].pct_change()
     recent = adj[adj["date"].isin(set(view.sessions(COOLING_SESSIONS).astype("datetime64[D]").astype(object)))]
-    out["max_abs_ret_7d"] = recent.groupby("security_id")["r"].apply(lambda s: float(np.nanmax(np.abs(s))) if s.notna().any() else np.nan)
+    out["max_abs_ret_7d"] = recent.groupby("security_id")["r"].apply(
+        lambda s: float(np.nanmax(np.abs(s))) if s.notna().any() else np.nan
+    )
     return out.reset_index()
 
 
@@ -92,7 +96,9 @@ def frame_1y(live: LiveData, reg: Registry) -> pd.DataFrame:
     fund = live.fund[["security_id", "company_id", "industry_group", "sector", "layout", *fund_cols]]
     tcols = [n for n in reg.names(sets=["tech", "regime"]) if n in live.tech.features.columns]
     tech = live.tech.features[["security_id", *tcols]]
-    frame = uni.merge(fund, on="security_id", how="left", validate="1:1").merge(tech, on="security_id", how="left", validate="1:1")
+    frame = uni.merge(fund, on="security_id", how="left", validate="1:1").merge(
+        tech, on="security_id", how="left", validate="1:1"
+    )
     for c in reg.broadcast_cols():
         if c in frame.columns:
             frame[c] = frame[c].dropna().iloc[0] if frame[c].notna().any() else np.nan
@@ -117,7 +123,9 @@ def frame_3m(live: LiveData) -> pd.DataFrame:
 
 def security_info(live: LiveData) -> pd.DataFrame:
     """symbol / company / group / layout / price / ADV20 per security, for the ideas stage."""
-    m = live.members[["security_id", "symbol", "company_id", "mcap_pit_cr", "adv63_lakh", "feature_complete", "mcap_flag"]].copy()
+    m = live.members[
+        ["security_id", "symbol", "company_id", "mcap_pit_cr", "adv63_lakh", "feature_complete", "mcap_flag"]
+    ].copy()
     f = live.fund[["security_id", "industry_group", "sector", "layout", "c_i", "nd_ebitda", "cfo_np"]]
     out = m.merge(f, on="security_id", how="left").merge(live.market, on="security_id", how="left")
     return out

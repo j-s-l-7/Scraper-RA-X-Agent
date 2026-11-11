@@ -63,7 +63,9 @@ def build_panel(view: PitView, period_type: str) -> pd.DataFrame:
     out["basis"] = np.where(out["is_c"] == 1, "C", "S")
     out["rev"] = out["sales"].fillna(out["revenue"])
     out["mi"] = out["pe"].dt.year * 12 + out["pe"].dt.month - 1
-    return out[["company_id", "mi", "pe", "basis", "rev", "np", "first_avail"]].sort_values(["company_id", "mi"])
+    out = out.sort_values(["company_id", "mi", "first_avail"], kind="stable")
+    out = out.drop_duplicates(["company_id", "mi"], keep="first")  # one period per month: the earliest-available row
+    return out[["company_id", "mi", "pe", "basis", "rev", "np", "first_avail"]]
 
 
 def _pick(panel: pd.DataFrame, cid: pd.Series, mi: pd.Series | np.ndarray, tag: str) -> pd.DataFrame:

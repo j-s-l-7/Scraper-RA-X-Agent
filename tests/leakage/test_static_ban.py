@@ -21,8 +21,10 @@ from ideation.config import REPO_ROOT
 from ideation.lake.bans import find_banned
 
 PKG = REPO_ROOT / "ideation"
-BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime", "tactical")
-BAN_ALLOWLIST: frozenset[str] = frozenset({"ideation/features/events_vendor.py"})  # 05 O5: the single entry
+BAN_SCANNED = ("features", "labels", "universe", "models", "cv", "eval", "backtest", "rank", "regime", "tactical",
+               "outcomes")  # fmt: skip
+VENDOR_MODULES = ("ideation/features/events_vendor.py", "ideation/outcomes/analyst.py")
+BAN_ALLOWLIST: frozenset[str] = frozenset(VENDOR_MODULES)  # 05 O5: exactly one feature module + one outcome module
 IMPORT_RESTRICTED = ("features", "models", "universe", "regime")
 FORBIDDEN_IMPORTS = ("ideation.lake", "ideation.labels", "psycopg", "psycopg2")
 IMPORT_EXCEPTIONS = {("ideation/models/train.py", "ideation.labels")}
@@ -30,7 +32,9 @@ LAKE_FREE = ("cv", "eval", "models", "rank", "trials")
 LAKE_IMPORTS = ("ideation.lake", "psycopg", "psycopg2")
 OUTCOME_FREE = ("features", "models", "universe", "rank", "cv", "regime")
 OUTCOME_IMPORTS = ("ideation.outcomes",)
-CLOCK_SCANNED = ("features", "labels", "universe", "regime")
+OUTCOME_PKG_FORBIDDEN = ("ideation.models", "ideation.rank", "ideation.cv", "ideation.lake", "psycopg", "psycopg2")
+OUTCOME_WRITE_OK = {"ideation.outcome"}
+CLOCK_SCANNED = ("features", "labels", "universe", "regime", "outcomes")
 CLOCK_ATTRS = {("date", "today"), ("datetime", "now"), ("datetime", "utcnow"), ("datetime", "today"), ("time", "time"),
                ("Timestamp", "now"), ("Timestamp", "today")}  # fmt: skip
 
@@ -93,7 +97,7 @@ def clock_reads(path: Path) -> list[str]:
 
 # ── the real scans ───────────────────────────────────────────────────────────────────────────────────────────
 def test_scanned_packages_exist() -> None:
-    for d in ("features", "labels", "universe", "models", "cv", "eval", "rank", "trials", "regime"):
+    for d in ("features", "labels", "universe", "models", "cv", "eval", "rank", "trials", "regime", "outcomes"):
         assert (PKG / d / "__init__.py").is_file(), d
 
 
@@ -106,14 +110,20 @@ def test_static_ban() -> None:
     assert {k: v for k, v in hits.items() if v} == {}
 
 
-def test_ban_allowlist_is_the_single_vendor_module() -> None:
-    """05 O5 / §10.3 PT2: exactly one allow-listed module; it really names the vendor columns (not vacuous); no other
-    scanned module may (``test_static_ban``), and the allow-listed module still obeys the import and clock rules."""
-    assert {"ideation/features/events_vendor.py"} == BAN_ALLOWLIST
-    vendor = REPO_ROOT / "ideation/features/events_vendor.py"
-    assert {"eps_estimate"} <= set(banned_strings(vendor))
-    assert forbidden_imports(vendor) == [] and clock_reads(vendor) == []
-    assert vendor in py_files(IMPORT_RESTRICTED) and vendor in py_files(CLOCK_SCANNED)
+def test_ban_allowlist_is_the_two_vendor_modules() -> None:
+    """05 O5 / §5.1: exactly the feature module and the outcome module are allow-listed; each really names the vendor
+    columns (not vacuous); no other scanned module may (``test_static_ban``); both still obey the import and clock
+    rules and the outcome module obeys the outcomes import contract."""
+    assert set(VENDOR_MODULES) == BAN_ALLOWLIST
+    for rel in VENDOR_MODULES:
+        mod = REPO_ROOT / rel
+        assert {"eps_estimate", "eps_reported"} & set(banned_strings(mod)), rel
+        assert forbidden_imports(mod) == [] and clock_reads(mod) == [], rel
+        assert mod in py_files(CLOCK_SCANNED)
+    assert REPO_ROOT / VENDOR_MODULES[0] in py_files(IMPORT_RESTRICTED)
+    assert REPO_ROOT / VENDOR_MODULES[1] in py_files(("outcomes",))
+    non_vendor = [p for p in py_files(("outcomes",)) if p.relative_to(REPO_ROOT).as_posix() not in BAN_ALLOWLIST]
+    assert {p.name for p in non_vendor} >= {"fundamental.py", "cli.py"}  # scanned for real, not exempt
 
 
 def test_import_contract() -> None:
@@ -136,6 +146,33 @@ def test_outcomes_are_isolated() -> None:
         for p in py_files(OUTCOME_FREE)
     }
     assert {k: v for k, v in hits.items() if v} == {}
+
+
+def test_outcomes_import_contract_and_write_target() -> None:
+    """05 §5: outcomes import no model/rank/cv/lake/driver module and write only to ``ideation.outcome``."""
+
+    files = py_files(("outcomes",))
+    assert files
+    bad = {p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p, forbidden=OUTCOME_PKG_FORBIDDEN) for p in files}
+    assert {k: v for k, v in bad.items() if v} == {}
+    for p in files:
+        assert write_targets_in(p) <= OUTCOME_WRITE_OK, p
+
+
+def write_targets_in(path: Path) -> set[str]:
+    import re
+
+    out: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            out.update(re.findall(r"(?:insert\s+into|delete\s+from|update)\s+([a-z_]+\.[a-z_]+)", node.value, re.I))
+            out.update(re.findall(r"copy_rows\(\s*\"([a-z_.]+)\"", node.value))
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "copy_rows":
+            a0 = node.args[0]
+            if isinstance(a0, ast.Constant):
+                out.add(str(a0.value))
+    return out
 
 
 def test_no_clock_reads() -> None:
@@ -170,6 +207,22 @@ def test_planted_vendor_literal_outside_the_allowlist_fails(planted: Path) -> No
     mod.write_text('COLS = ["eps_estimate", "surprise_pct"]\n')
     assert set(banned_strings(mod)) == {"eps_estimate", "surprise_pct"}
     assert "ideation/features/sneaky.py" not in BAN_ALLOWLIST
+    (planted.parent / "ideation" / "outcomes").mkdir()
+    out = planted / "outcomes" / "fundamental.py"
+    out.write_text('COLS = ["eps_estimate"]\n')
+    assert set(banned_strings(out)) == {"eps_estimate"}
+    assert "ideation/outcomes/fundamental.py" not in BAN_ALLOWLIST
+
+
+def test_planted_outcome_writes_and_imports_are_caught(planted: Path) -> None:
+    (planted / "outcomes").mkdir()
+    mod = planted / "outcomes" / "bad.py"
+    mod.write_text(
+        'import psycopg\nfrom ideation.models import zoo\nq = "delete from ideation.label where x"\n'
+        'def f(conn):\n    conn.copy_rows("ideation.oos_prediction", [])\n'
+    )
+    assert set(forbidden_imports(mod, planted, OUTCOME_PKG_FORBIDDEN)) >= {"psycopg", "ideation.models"}
+    assert write_targets_in(mod) == {"ideation.label", "ideation.oos_prediction"}
 
 
 def test_scanner_catches_planted_imports(planted: Path) -> None:

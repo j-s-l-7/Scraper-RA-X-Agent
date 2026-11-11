@@ -49,11 +49,14 @@ def load_events(view: PitView) -> pd.DataFrame:
     raw = view.earnings_vendor()
     df = raw[raw[REP].notna() & raw[EST].notna()]
     df = df.assign(event_date=pd.to_datetime(df["event_date"]))
-    if len(df) and (pd.to_datetime(df["available_from"]) <= df["event_date"]).any():
-        raise AssertionError("vendor row available on/before its event date (05 §5.1: available_from = event_date + 1)")
+    consistent = pd.to_datetime(df["available_from"]) == df["event_date"] + pd.Timedelta(days=1)
+    n_bad = int((~consistent).sum())  # 05 §5.1: available_from = event_date + 1; a row that disagrees is not trusted
+    df = df[consistent]
     df = df.assign(surp=surprise(df[EST], df[REP]), beat=beat(df[EST], df[REP]))
     df = df.drop_duplicates(["company_id", "event_date"], keep="last").sort_values(["company_id", "event_date"])
-    return df[["company_id", "event_date", "surp", "beat"]].reset_index(drop=True)
+    out = df[["company_id", "event_date", "surp", "beat"]].reset_index(drop=True)
+    out.attrs["n_dropped_availability_mismatch"] = n_bad
+    return out
 
 
 def build_analyst(

@@ -42,3 +42,19 @@ def test_merge_coverage_robust_to_date_vs_timestamp() -> None:
     assert len(m) == 2 and m["u_trend"].tolist() == [1, 2]
     m2 = merge_coverage(cov_a.assign(anchor=pd.to_datetime(cov_a["anchor"])), cov_t.assign(anchor=[date(2023, 6, 30), date(2024, 6, 28), date(2025, 6, 30)]))
     assert len(m2) == 2
+
+
+def test_research_report_pt3_section(tmp_path) -> None:
+    import json
+
+    from ideation.report.research import pt3_section
+
+    ctx = SimpleNamespace(data_dir=tmp_path, snap="S1")
+    assert pt3_section(ctx) == ""  # no PT3 json: no section
+    p = {"ic_a": 0.01, "ic_b": 0.02, "delta": -0.01, "ci90": [-0.02, 0.01], "p_gt0": 0.3, "pos": 2, "n": 5}
+    d = tmp_path / "reports" / "pt3"
+    d.mkdir(parents=True)
+    (d / "PT3_S1.json").write_text(json.dumps({"dsr": {"champion_pre": {"dsr": 0.8, "n_trials": 50}, "champion_all": {"dsr": 0.79, "n_trials": 53}},
+                                               "trials": {"X": {"vs_full_restricted": p, "vs_control": p}}}))
+    txt = pt3_section(ctx)
+    assert "PT3" in txt and "N = 53" in txt and "2/5" in txt

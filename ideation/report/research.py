@@ -387,11 +387,32 @@ def outcome_section(ctx: Ctx, family: str, models: dict[str, pd.DataFrame], cres
 
 
 # ── Q5 : text and event features ────────────────────────────────────────────────────────────────────────────────────
+def pt3_section(ctx: Ctx) -> str:
+    """PT3 (annual-report text and multi-call trends, trials #51-53) from the stored PT3 report JSON; '' if absent."""
+    js = ST.read_json(ctx.data_dir / "reports" / "pt3" / f"PT3_{ctx.snap}.json")
+    if not js:
+        return ""
+    rows = []
+    for tid, r in js["trials"].items():
+        for key, lab in (("vs_full_restricted", "full-universe model restricted to the same names"), ("vs_control", "matched control")):
+            p = r[key]
+            rows.append({"trial": tid, "compared with": lab, "IC with features": f(p["ic_a"]), "IC other": f(p["ic_b"]), "delta": f(p["delta"]),
+                         "CI90": ci(tuple(p["ci90"])), "P(delta>0)": f(p["p_gt0"], 2), "years better": f"{p['pos']}/{p['n']}"})  # fmt: skip
+    d = js.get("dsr", {})
+    c0, c1 = d.get("champion_pre"), d.get("champion_all")
+    dsr_txt = (f" The champion's deflated Sharpe is {f(c0['dsr'])} at N = {c0['n_trials']} and {f(c1['dsr'])} at N = {c1['n_trials']} once these trials are counted."
+               if c0 and c1 else "")
+    return ("\n\n**Annual-report text and multi-call trends (PT3, trials #51-53, annual-report coverage is high so the control is the ordinary core model):**\n\n"
+            + RP.md(pd.DataFrame(rows)) + "\n\nThese three challengers are registered in N and none is selectable." + dsr_txt
+            + " The features use annual reports available only after fiscal-year end plus 180 days (later if a cover-letter or AGM date is later), so they are stale by construction. "
+            "Reading: a paired delta whose interval spans zero is no evidence of value.\n")
+
+
 def text_section(ctx: Ctx, family: str) -> str:
     if family == "1Y-june":
         js = ST.read_json(ctx.data_dir / "reports" / "ms1" / f"MS1_text_{ctx.snap}.json")
         if not js:
-            return "MS1-text results are not available (run `ideation backtest text`).\n"
+            return "MS1-text results are not available (run `ideation backtest text`).\n" + pt3_section(ctx)
         rows = []
         for tid, r in js.items():
             for key, lab in (("vs_control", "same learner, core columns, same covered names (matched control)"), ("vs_full_restricted", "full-universe model restricted to the same names")):
@@ -401,7 +422,7 @@ def text_section(ctx: Ctx, family: str) -> str:
         return ("1Y text (trials #44-45, covered names only, indicative: few counted anchors and few covered names in the early years):\n\n" + RP.md(pd.DataFrame(rows)) + "\n\n"
                 "Reading: against the matched control (trained only on the same few hundred covered rows) text looks positive, but that control is weak because it has so little training data; "
                 "against the full-universe model, which saw many times more training rows, text adds nothing distinguishable from zero (CIs include 0). "
-                "The honest conclusion is that the 1Y data do not show that text adds value beyond what a larger training set provides.\n")
+                "The honest conclusion is that the 1Y data do not show that text adds value beyond what a larger training set provides.\n" + pt3_section(ctx))
     sc = ctx.data_dir / "tactical_ms2" / "scores"
     rows = []
     for tag, base in (("RF_T1_TEXT", "17"), ("RIDGE_T1_TEXT", "18"), ("RF_T1_VSURP", "19"), ("RIDGE_T1_VSURP", "20")):
@@ -785,6 +806,7 @@ DEVIATIONS_MD = """## Pre-registration deviations and holdout-hygiene disclosure
 6. 1Y text trials #44-45 ran on the covered subset with a protocol-arm control (not a trial, not in N); their DSR/PBO/selection were not recomputed and they never entered the selection pool.
 7. This report's 1M tactical numbers come from the stored 1M `wf_result` rows of the same fits; 1M never selects.
 8. Portfolio rows use the 1M labels chained monthly (fractional shares), not a price-level simulation; the 1Y monthly mark-to-market series has 60 months.
+9. PT3 trials #51-53 were fitted, reviewed, corrected (fiscal-year end and availability made more conservative, a cache-key and a flag fix) and re-fitted as the same registered trials; no trial was added and N is unchanged. The first-pass results are superseded and recorded in docs/STATUS.md.
 """
 
 CAVEATS_MD = """## Caveats

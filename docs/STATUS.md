@@ -1916,3 +1916,6 @@ LIVE-ONLY, UNVALIDATED. Gautam Baid = hard-filter bad / boost great; Aravind = r
 - Baid posted no single-stock call in the 14 days of data: the overlay will be idle until he does. The model may also emit tickers it is unsure of; those stay `unresolved` and are never applied.
 - Token prices in `experts.yaml` are placeholders, not OpenAI's list; only the printed estimate depends on them.
 - LLM theses are model-written summaries stored in `expert_call.thesis` and shown in the ideas report; they can echo a post closely. Treat them as unvalidated.
+
+### Acceptance (Experts)
+`ruff check .` clean; `pytest -m "not lake"`: 682 passed after one fix (the adapter ban test needed a case per new ban; added), 1 xfail, 1 xpass (both pre-existing E1); `pytest -m lake`: 123 passed in 11m47s (serial, `nice -n 10`); `scripts/secret_scan.py --all` clean.

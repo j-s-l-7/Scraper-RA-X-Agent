@@ -28,6 +28,19 @@ def latest_snap(data_dir: Path) -> str:
     return cands[-1]
 
 
+def select_subset_trials(specs: list, kinds: set[str], requested: set[str] | None) -> set[str]:
+    """Trial ids of the ``--text`` / ``--pt3`` family intersected with ``--trials``. An empty result is an error: the
+    downstream ``only`` filter treats an empty set as 'no filter' and would fit the whole family."""
+    fam = {s.trial_id for s in specs if s.config.get("subset") in kinds}
+    sel = fam & requested if requested else fam
+    if not sel:
+        raise ValueError(
+            f"no trial selected: --trials {sorted(requested or [])} does not intersect "
+            f"the {sorted(kinds)} trials {sorted(fam)}"
+        )
+    return sel
+
+
 def train_cmd(
     horizon: Annotated[str, typer.Option(help="1y (this milestone) | tactical is MS2.")] = "1y",
     bakeoff: Annotated[bool, typer.Option("--bakeoff", help="Run every runnable trial of the family.")] = False,
@@ -68,7 +81,11 @@ def train_cmd(
     only = {t.strip() for t in trials.split(",") if t.strip()} or None
     if text or pt3:
         kinds = ({"text_covered"} if text else set()) | ({"annual_covered", "trend_covered"} if pt3 else set())
-        only = {s.trial_id for s in specs if s.config.get("subset") in kinds} & (only or {s.trial_id for s in specs})
+        try:
+            only = select_subset_trials(specs, kinds, only)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(2) from exc
         report = False
     with Writer.from_settings(settings).connect() as conn:
         ids = {s.trial_id: assert_registered(conn, family, s.config_hash) for s in specs}

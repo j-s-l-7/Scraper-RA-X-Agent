@@ -12,6 +12,7 @@
 | PT2 text PIT features + vendor gate | done (merged to `main`) | see "PT2" below |
 | Outcomes (05 §5, moved to MS1-text) | done on branch `phase-outcomes`, not merged | see "Outcomes" below |
 | PT3 annual-report text + multi-call trends | done on branch `phase-pt3-annual-reports`, not merged (challenger result: no evidence of value) | see "PT3" below |
+| PT3 review fixes | done on branch `fix-pt3-review`, not merged (null PT3 result holds) | see "PT3 review fixes" below |
 
 ## Phase 0
 
@@ -2079,3 +2080,71 @@ LIVE-ONLY, UNVALIDATED. Gautam Baid = hard-filter bad / boost great; Aravind = r
 
 ### Acceptance (Experts)
 `ruff check .` clean; `pytest -m "not lake"`: 682 passed after one fix (the adapter ban test needed a case per new ban; added), 1 xfail, 1 xpass (both pre-existing E1); `pytest -m lake`: 123 passed in 11m47s (serial, `nice -n 10`); `scripts/secret_scan.py --all` clean.
+
+## PT3 review fixes (branch `fix-pt3-review`, worktree `../wt-fixpt3`; not merged)
+
+Date 2026-11-11. Eight code-review findings on PT3 fixed with regression tests (`tests/unit/test_annual_text.py`, new `tests/unit/test_pt3_review.py`). Extraction
+text rules are unchanged (cache `pt3.1` valid, 0 reports re-read); only the post-cache FY-end / availability step changed. `ideation init-db` not run; no label
+or holdout read beyond the unsealed `load_labels` path used by the bake-off; no new trial (N stays 53). Old PT3 results are superseded (kept under
+`~/Ideation-data/bakeoff/<snap>/superseded_pt3_pre_review/`, not in git).
+
+### What each fix did
+1. **FY end (PIT)**. `label_fy_end(fiscal_year, fy_month)` was already combined with the text 'year ended' date by taking the later; what was missing was the unknown-month
+   case (the old code silently used March, which can be earlier than the truth). Now `fy_month=None` (company absent from the financial_fact month map): month
+   derived from the text (latest 'year ended' candidate in [Jan 1 of the label year, Dec 31 of the next]), else December of the label year (latest plausible year
+   end). Measured on the real catalog (29,319 readable reports, 2,559 companies; `fiscal_year` vs the 'year ended' dates repeated >= 2 times in the text):
+   | label vs text (before fix) | March-FY (fy_month 3) | non-March FY | all | FY<=2014 | FY2015-19 | FY2020+ |
+   |---|---|---|---|---|---|---|
+   | agree (+-3 d) | 27,747 | 231 | 27,978 (95.4%) | 89.5% | 96.3% | 96.7% |
+   | text LATER than label (label too early: the leak direction) | 180 | 0 | 180 (0.61%; 72 companies; +91 d x 93, +181 d x 32, +275 d x 52, +360 d x 3) | 2.5% | 0.45% | 0.13% |
+   | text EARLIER than label (label too late: harmless, later is kept) | 112 | 25 | 137 (0.47%) | 1.7% | 0.32% | 0.18% |
+   | no text candidate (3.5%: only the label is available) | 1,017 | 7 | 1,024 | 6.3% | 2.9% | 3.0% |
+   The company-level fy_month map is a *current* month applied to all years (it has no entry gap in this snapshot: 0 of 2,559 companies missing, 0.9% of reports non-March),
+   so the 180 'label too early' reports (a company whose FY changed, or a label that is the year the FY starts: one company shows FY2016..FY2020 all +365 d)
+   rely on the text; the existing rule already took the text date there (741 reports = 2.5% have fy_end from text, none earlier than the label). New fy_end versus old: 0 changed with the
+   month map present. Simulating a missing month map for every company: 96.4% reproduce the map-based FY end, 3.6% are later (assumed December), 0.07% (21 reports; the map says December,
+   the text March) are earlier by 183-275 d. Without the fix the old default (March) would be earlier than the truth for the 0.9% non-March-FY reports when the map is missing.
+2. **Availability (PIT)**. The first in-window cover-letter / AGM date was used; now every in-window date among the first two pages' dates and the AGM dates is a candidate and the
+   LATEST is used: `available_from = max(FY end + 180 d, latest parsed + 1)`. On the real rows (29,319 readable reports): **892 (3.04%) move later, 0 move earlier**; shift when
+   moved: median 22 d, mean 76 d, p90 188 d, max 339 d (<= 7 d: 408; 8-30 d: 88; 31-90 d: 67; 91-180 d: 92; > 180 d: 237). Mean shift over all reports 2.3 d. Basis (old -> new): agm 6,876 -> agm,
+   191 agm -> filed; 656 lag -> filed. Reports with available_from > FY end + 275 d: 0.41% -> 1.54%. The June-anchor coverage barely moved (AR cur 92.4-95.0%, was 92.6-95.0%; the 2019 anchor 95.4%, was 95.5%).
+3. **Cache key**. `cache_keys()` treats null / NaN / pd.NA / blank sha as missing and keys on `path:<text_path>`. Regression test mixes NaN, None, pd.NA, '' and whitespace; the catalog has 0 null shas
+   today so no production key changed.
+4. **N pre-registered** in the DSR block is `len(specs) - PT3 specs` (registered, not fitted): `n_preregistered()`.
+5. **`train --text/--pt3 --trials`**: an empty intersection now raises (exit 2, message names the families) instead of fitting the whole family (`select_subset_trials`, tested).
+6. **`--limit`**: `.copy()` of the head; with `--limit` the extraction cache goes to `limit_<name>.parquet` (production cache is read-only) and the production output is not written; a `--limit --no-cache` run previously overwrote the
+   production cache with the subset. Tested (production cache and output byte-identical after a limited no-cache run).
+7. **`isna_ar_prev`** = 1 whenever there is no previous report, including when there is no current report (was 0 for names with no current report); `_attach` already fills missing rows with 1; `coverage_row`'s `u_cur_prev`
+   (`isna_ar == 0 and isna_ar_prev == 0`) is unchanged in meaning; yaml and docstring updated; tests updated.
+8. **`pt3-features` CLI**: `annual_df/cov_a/cov_t` bound before the run block, the skipped-run path returns cleanly, and the coverage merge (`merge_coverage`) normalises `anchor` to Timestamp on both sides.
+
+### Rebuild and rerun
+| command | result |
+|---|---|
+| `uv run ideation text annual` | warm from cache, 9 s; FY end from text 2.5%, basis lag 71.2% (was 73.4%) / filed 5.4% / agm 23.5%, available_from > lag 28.8% (was 26.6%) |
+| `uv run ideation text pt3-features --anchors june,march` | 33 anchors, 45,430 rows, 19 s |
+| `uv run ideation train --horizon 1y --bakeoff --cpcv --pt3` (rerun of #51-53 + their 3 protocol controls) | the bake-off result AND fold checkpoint caches are keyed by the config hash only, so the first attempt re-used the old fits in 7 s (identical numbers, discarded); the six arms' result and checkpoint dirs were moved aside and the fit redone (about 10 min) |
+| `uv run ideation backtest pt3` | paired report + DSR at N = 53, persisted over the same trial rows |
+Rerun of the same registered trials; the feature changes reach the model only through which reports are visible at an anchor (availability) and which report is `cur` (FY end).
+
+### Old vs new paired results (mean IC over the 5 counted anchors 2020-2024; delta, CI90, P(delta>0), years better)
+| trial | compared with | old | new |
+|---|---|---|---|
+| SCR_GLOBAL_AR | full-universe SCR_GLOBAL, same names | IC 0.0125 vs 0.0148; -0.0022 [-0.015, +0.007]; 0.38; 4/5 | IC 0.0125 vs 0.0149; -0.0024 [-0.016, +0.007]; 0.35; 4/5 |
+| SCR_GLOBAL_AR | matched control | 0.0125 vs 0.0172; -0.0046 [-0.018, +0.003]; 0.33; 4/5 | 0.0125 vs 0.0170; -0.0045 [-0.018, +0.004]; 0.33; 3/5 |
+| RF_GLOBAL_AR | full-universe RF_GLOBAL | 0.0042 vs 0.0009; +0.0033 [-0.011, +0.014]; 0.72; 4/5 | 0.0049 vs 0.0010; +0.0039 [-0.009, +0.015]; 0.73; 4/5 |
+| RF_GLOBAL_AR | matched control | 0.0042 vs 0.0005; +0.0037 [-0.011, +0.012]; 0.74; 4/5 | 0.0049 vs 0.0019; +0.0029 [-0.010, +0.013]; 0.72; 4/5 |
+| SCR_GLOBAL_TREND | full-universe SCR_GLOBAL | 0.0264 vs 0.0310; -0.0046 [-0.019, +0.010]; 0.30; 2/5 | identical (trend features do not use annual reports) |
+| SCR_GLOBAL_TREND | matched control | 0.0264 vs 0.0272; -0.0007 [-0.022, +0.014]; 0.47; 4/5 | identical |
+CPCV (robustness): SCR_GLOBAL_AR 0.0425 vs control 0.0404 (old 0.0426 vs 0.0403); RF_GLOBAL_AR 0.0366 vs 0.0230 (old 0.0372 vs 0.0242); SCR_GLOBAL_TREND unchanged.
+DSR at N = 53: P1_UNIFIED_XS 0.813 at N = 50 -> 0.806 at N = 53 (SR0 1.097), unchanged by the fixes; the PT3 trials' own DSR (pool + PT3) SCR_GLOBAL_AR 0.028 (old 0.028), RF_GLOBAL_AR 0.022 (old 0.021), SCR_GLOBAL_TREND 0.034 (old 0.034).
+**Conclusion unchanged: every paired delta CI90 includes zero, no PT3 challenger beats its control or the full-universe model, nothing survives the deflation; the null PT3 result holds.** The PIT corrections moved the with-features ICs by <= 0.0008 (the RF matched control moved by 0.0014: forest noise on ~800 names)
+(the leak-direction effects touch 0.6% (FY end) and 3.0% (availability) of reports, mostly small shifts). The fixes are infrastructure hardening, not a change in the finding.
+
+### Research report
+`uv run ideation report research --family 1Y-june --family tactical-3M` re-rendered at N = 53 (the 1Y family N check passes) with a new PT3 block in question (5) (paired table from `PT3_<snap>.json`, DSR at the enlarged N)
+and a deviations note (#9) on the review rerun. The mechanism template is untouched (no literal numbers; `test_ms3_report.py` passes). P6/expert-module notes were not added to the report (not cheap: the experts overlay is
+live-only and outside the backtest report).
+
+### Acceptance
+`uv run ruff check .` clean; `pytest -p no:xdist -m "not lake"` 713 passed, 1 xfailed, 1 xpassed (153 s); `pytest -p no:xdist -m lake` 129 passed (776 s); `scripts/secret_scan.py --all` clean; no data in git.

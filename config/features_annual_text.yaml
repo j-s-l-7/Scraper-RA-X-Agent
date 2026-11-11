@@ -21,7 +21,7 @@ params:
 
 flags:
   isna_ar: 1 when the name has no visible quality-OK annual report with fy_end within 600 days (all columns NaN)
-  isna_ar_prev: 1 when cur exists but the preceding-year report does not (all d_ar_* columns NaN)
+  isna_ar_prev: 1 when there is no preceding-year report, including when there is no cur either (all d_ar_* columns NaN)
 
 features:
   ar_tone:     {family: ar_tone, prior: 1,  kind: cross_sectional, category: annual_text, set: annual, complete: false}

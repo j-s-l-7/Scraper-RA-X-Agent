@@ -368,34 +368,68 @@ def _load_dates(s: Any) -> list[date]:
     return [date.fromisoformat(x) for x in json.loads(s)]
 
 
-def resolve_fy_end(fiscal_year: int, fy_month: int, fy_cands: list[date]) -> tuple[date, str]:
+ASSUMED_FY_MONTH: Final = 12
+"""Conservative fiscal-year-end month when a company has no ``financial_fact`` month and the text gives none: the latest
+plausible Indian year end (March / June / September / December) of the label year, so FY end is never earlier than the truth."""
+
+
+def _text_year_end(fiscal_year: int, fy_cands: list[date]) -> date | None:
+    """Latest 'year ended' candidate in [Jan 1 of the label year, Dec 31 of the next year]: the FY end whether the label
+    is the year the FY ends or (as measured for a few companies) the year it starts. Prior-year comparatives lie earlier."""
+    ok = [d for d in fy_cands if date(fiscal_year, 1, 1) <= d <= date(fiscal_year + 1, 12, 31)]
+    return max(ok) if ok else None
+
+
+def resolve_fy_end(fiscal_year: int, fy_month: int | None, fy_cands: list[date]) -> tuple[date, str]:
     """Fiscal-year end = the LATER of the label-based end and a text-parsed 'year ended' date (the latest candidate
     occurring >= 2 times, accepted inside [label - 400 d, label + 366 d]). Later = more conservative, so the upper
-    cap is wide: it only guards against a stray far-future date (forward-looking text)."""
+    cap is wide: it only guards against a stray far-future date (forward-looking text).
+    ``fy_month`` None (company absent from the ``financial_fact`` month map): the month is derived from the text (latest
+    candidate in the label year or the next one), else ``ASSUMED_FY_MONTH`` (December: the later of the plausible candidates)."""
+    src_unknown = ""
+    if fy_month is None:
+        t = _text_year_end(fiscal_year, fy_cands)
+        if t is not None:
+            return t, "text_month"
+        fy_month, src_unknown = ASSUMED_FY_MONTH, "assumed"
     lab = label_fy_end(fiscal_year, fy_month)
     ok = [d for d in fy_cands if lab - timedelta(days=400) <= d <= lab + timedelta(days=366)]
     if ok and max(ok) > lab:
         return max(ok), "text"
-    return lab, "label"
+    return lab, src_unknown or "label"
+
+
+def _latest_in_window(ds: list[date], fy_end: date, win: tuple[int, int]) -> date | None:
+    ok = [d for d in ds if fy_end + timedelta(days=win[0]) <= d <= fy_end + timedelta(days=win[1])]
+    return max(ok) if ok else None
 
 
 def availability(
-    fiscal_year: int, fy_month: int, cover: list[date], agm: list[date], fy_cands: list[date], lag: int = AVAIL_LAG_DAYS
+    fiscal_year: int, fy_month: int | None, cover: list[date], agm: list[date], fy_cands: list[date], lag: int = AVAIL_LAG_DAYS
 ) -> dict[str, Any]:
-    """``available_from = max(fy_end + lag, parsed + 1)``; parsed = cover-letter (filing) date if one lies in
-    [fy_end + 30 d, fy_end + 540 d], else the AGM date from the notice if in [fy_end + 60 d, fy_end + 540 d]. If both
-    parse, the later is used (the AGM follows the filing, so this is the conservative reading)."""
+    """``available_from = max(fy_end + lag, latest parsed + 1)``; every cover-letter date inside
+    [fy_end + 30 d, fy_end + 540 d] and every AGM date inside [fy_end + 60 d, fy_end + 540 d] is a candidate and the
+    LATEST one is used (conservative: parsed dates can only push availability later, never earlier)."""
     fy_end, fy_src = resolve_fy_end(fiscal_year, fy_month, fy_cands)
-    filed = next((d for d in cover if fy_end + timedelta(days=FILED_WINDOW[0]) <= d <= fy_end + timedelta(days=FILED_WINDOW[1])), None)
-    agm_d = next((d for d in agm if fy_end + timedelta(days=AGM_WINDOW[0]) <= d <= fy_end + timedelta(days=AGM_WINDOW[1])), None)
+    filed = _latest_in_window(cover, fy_end, FILED_WINDOW)
+    agm_d = _latest_in_window(agm, fy_end, AGM_WINDOW)
     fixed = fy_end + timedelta(days=lag)
     parsed = max([d for d in (filed, agm_d) if d is not None], default=None)
     cands = [fixed] + ([parsed + timedelta(days=1)] if parsed else [])
     av = max(cands)
     basis = "lag" if (parsed is None or parsed + timedelta(days=1) <= fixed) else ("agm" if parsed == agm_d else "filed")
-    lab = label_fy_end(fiscal_year, fy_month)
+    lab = label_fy_end(fiscal_year, fy_month if fy_month is not None else ASSUMED_FY_MONTH)
     return {"fy_end": fy_end, "fy_end_src": fy_src, "fy_end_label": lab, "filed_date": filed, "agm_date": agm_d, "parsed_date": parsed,
             "available_from": av, "avail_basis": basis}  # fmt: skip
+
+
+def cache_keys(shas: Any, paths: Any) -> list[str]:
+    """Extraction-cache key per report: the pdf sha256, or ``path:<text_path>`` when the sha is null / NaN / pd.NA / blank."""
+    out = []
+    for s, p in zip(shas, paths, strict=True):
+        missing = s is None or bool(pd.isna(s)) or not str(s).strip()
+        out.append(f"path:{p}" if missing else str(s))
+    return out
 
 
 # ── build ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -421,10 +455,12 @@ def build(
     stats: dict[str, Any] = {"catalog_rows": len(catalog), "deduped": len(uniq),
                              "dropped_dupes": len(catalog.dropna(subset=["fiscal_year", "text_path"])) - len(uniq)}  # fmt: skip
     if limit:
-        uniq = uniq.head(limit)
-    uniq["cache_key"] = [f"{s or 'path:' + p}" for s, p in zip(uniq["pdf_sha256"], uniq["text_path"], strict=True)]
+        uniq = uniq.head(limit).copy()
+    uniq["cache_key"] = cache_keys(uniq["pdf_sha256"], uniq["text_path"])
     out_path, cache_path = output_paths(out_dir)
     cached = pd.read_parquet(cache_path) if (use_cache and cache_path.exists()) else pd.DataFrame()
+    if limit:  # a smoke test reads the production cache but never writes it
+        cache_path = cache_path.with_name(f"limit_{cache_path.name}")
     have = set(cached["cache_key"]) if len(cached) else set()
     todo = uniq[~uniq["cache_key"].isin(have) & ~uniq["cache_key"].duplicated()]
     stats["from_cache"], stats["extracted"] = int(uniq["cache_key"].isin(have).sum()), len(todo)
@@ -446,14 +482,14 @@ def build(
     core = pd.concat([cached, fresh], ignore_index=True) if len(fresh) else cached
     if len(fresh):
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        core.drop_duplicates("cache_key").to_parquet(cache_path, index=False)
+        (fresh if limit else core).drop_duplicates("cache_key").to_parquet(cache_path, index=False)
     core = core.drop_duplicates("cache_key")
     df = uniq.merge(core, on="cache_key", how="left", validate="many_to_one")
     fym = fy_months or {}
     av = []
     for r in df.itertuples(index=False):
         if r.read_ok is True or r.read_ok == 1:
-            av.append(availability(int(r.fiscal_year), fym.get(int(r.company_id), 3), _load_dates(r.cover_dates),
+            av.append(availability(int(r.fiscal_year), fym.get(int(r.company_id)), _load_dates(r.cover_dates),
                                    _load_dates(r.agm_dates), _load_dates(r.fy_cands), lag))  # fmt: skip
         else:
             av.append({"fy_end": None, "fy_end_src": None, "fy_end_label": None, "filed_date": None, "agm_date": None, "parsed_date": None,

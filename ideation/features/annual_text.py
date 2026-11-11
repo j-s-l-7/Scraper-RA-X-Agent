@@ -9,7 +9,7 @@ Leakage rules (same discipline as ``features/text.py``):
 * ``fiscal_year`` is a label and is not read. Windows use ``fy_end``: ``cur`` = the visible quality-OK report with the
   latest ``fy_end`` >= A - 600 d; ``prev`` = the visible quality-OK report whose ``fy_end`` lies 300..430 d before cur's.
 * No fill. A name without ``cur`` has NaN in every column (``isna_ar`` = 1); without ``prev``, NaN in every ``d_ar_*``
-  (``isna_ar_prev`` = 1); a feature whose source section was not found in the report is NaN.
+  (``isna_ar_prev`` = 1; also 1 when there is no ``cur``, so a missing row and a missing ``prev`` agree); a feature whose source section was not found in the report is NaN.
 * ``<feature>_rg`` = rank-gauss within the covered members of the anchor (NaN elsewhere); convenience only.
 """
 
@@ -86,7 +86,7 @@ def build_annual(
         f[f"d_{name}"] = cur[src].astype("float64") - prev[src].astype("float64")
     has_cur, has_prev = cur["fy_end"].notna(), prev["fy_end"].notna()
     f["isna_ar"] = (~has_cur).astype("int8")
-    f["isna_ar_prev"] = (has_cur & ~has_prev).astype("int8")
+    f["isna_ar_prev"] = (~has_prev).astype("int8")  # 1 whenever there is no previous report, incl. no current one
     f["ar_fy_end"] = [_day(x) for x in cur["fy_end"]]
     f["ar_available_from"] = [_day(x) for x in cur["available_from"]]
     f["ar_prev_fy_end"] = [_day(x) for x in prev["fy_end"]]

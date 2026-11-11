@@ -26,6 +26,7 @@ def _register_subapps() -> None:
     from ideation.features.cli import app as features_app
     from ideation.features.tech_cli import app as features_tech_app
     from ideation.labels.cli import app as labels_app
+    from ideation.outcomes.cli import app as outcomes_app
     from ideation.tactical.cli import app as tactical_app
     from ideation.text.cli import app as text_app
     from ideation.universe.cli import app as universe_app
@@ -38,6 +39,7 @@ def _register_subapps() -> None:
     app.add_typer(tactical_app, name="tactical")
     app.add_typer(backtest_app, name="backtest")
     app.command("train")(train_cmd)
+    app.add_typer(outcomes_app, name="outcomes")
 
 
 _register_subapps()

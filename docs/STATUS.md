@@ -10,6 +10,7 @@
 | P2 fundamental features | done (merged to `main`; features, universes and labels rebuilt on `main` 2026-11-06 with the feature-completeness hook) | see "P2" below |
 | P3 technical / regime / RRG / events | done (merged to `main`) | see "P3" below |
 | PT2 text PIT features + vendor gate | done (merged to `main`) | see "PT2" below |
+| Outcomes (05 §5, moved to MS1-text) | done on branch `phase-outcomes`, not merged | see "Outcomes" below |
 | PT3 annual-report text | planned after MS3 | 05 §12 |
 
 ## Phase 0
@@ -1634,3 +1635,58 @@ RF_GLOBAL: R-C
 - Live-state footprint: 50 `experiment_trial` rows, 2 train runs (262 smoke, 263 full), 48 `model` rows, 282 `wf_result`, 336,180 `oos_prediction`, 5,880 `rank_calibration` rows. The orchestrator
   should re-run `ideation backtest report --leakage-green` on `main` after merge only if the snapshot changes; results are keyed by config hash and snapshot.
 - MS1-text still owes #44-#45; `N` stays 50.
+
+## Outcomes (branch `phase-outcomes`, from `main` ff83ea4; 05 §5, §10.2.c)
+
+Date 2026-11-11. Snapshot `20261105-e33e7986`. No migration: `ideation.outcome` already exists (E1 012; verified, 0 rows before
+the build). `init-db` never run from the worktree. Rows are keyed on the (anchor, security) pairs that have labels, read only
+through `load_labels(..., "report")` after `unsealed_only`.
+
+### What was built
+- `ideation/outcomes/analyst.py` (second and last `BAN_ALLOWLIST` entry; emits `out_beat`, `out_surp`, `n_events`), `fundamental.py`
+  (`out_fs_sales`, `out_fs_pat`, `out_accel`), `cli.py` (`ideation outcomes build|check`, one `add_typer` line in `ideation/cli.py`).
+- Analyst: late-view `earnings_vendor()`; rows with `available_from != event_date + 1`, a missing estimate or a missing reported EPS are
+  dropped (0 mismatches on the real data). `surp` and `beat` exactly as 05 §5.1. 1Y = first 4 events in (A, A+12M], 3M = first event in
+  (A, A+3M].
+- Fundamental: FY(Y) = latest FY first available by A (<= 550 days old); FY(Y+1) must land by A+12M+60d; basis rule per FY; growth or
+  CAGR across a basis switch or a gap other than 12 months is NaN; PAT > 0 at both CAGR ends; values winsorised at +-5.
+  `fundamental_q` (3M, anchors >= 2023-06): next-quarter YoY sales growth minus the median YoY of the latest 4 available quarters (>= 2 valid).
+- Set statistics for the report layer: `analyst.compare_sets` (difference vs the rest, anchor-clustered bootstrap CI) and
+  `fundamental.cmh_accel` (Cochran-Mantel-Haenszel by anchor). Unit-tested on synthetic data.
+- Static tests: `BAN_ALLOWLIST` = {events_vendor.py, outcomes/analyst.py} with non-vacuous tests for both, `outcomes` added to the ban and
+  clock scans, outcomes may not import models/rank/cv/lake/psycopg and may write only `ideation.outcome` (planted self-tests).
+
+### Commands, runtimes, results
+| Command | Result | Wall |
+|---|---|---|
+| `nice -n 10 uv run ideation outcomes build` | 82,292 rows (see below) | 65 s |
+| `uv run ideation outcomes check` | the owner check below | 95 s |
+
+Rows in `ideation.outcome`: 1Y analyst 5,068 (9 June anchors 2016-2024); 1Y fundamental 9,397 (9); 3M analyst 58,259 (138 monthly
+anchors 2014-01..2025-06); 3M fundamental_q 9,568 (24 anchors, 2023-06..2025-06).
+Coverage of U_score (June, analyst): 66%, 71%, 65%, 64%, 48%, 34%, 37%, 36%, 36% for 2016..2024 (later years are inside the expected
+30-45%; earlier years are higher because U_score was small and large caps dominate). Fundamental 1Y coverage 89-93% for 2018-2024 but
+2.8% (2016) and 3.4% (2017): broad annual history starts at FY2015, so FY(Y-3) is missing. `fundamental_q` covers 0.7% (2023), 10% (2024),
+52% (2025) of U_score_T: quarterly breadth, as 03 §B3 warned.
+
+**Owner check: does the surprise sign agree with the announcement return?** Events 2015-01-01..2025-06-30, n = 19,051, 42 quarters:
+mean `ear_3d` is +1.74% after a beat and -1.52% after a miss (difference 3.26 pp), quarter-clustered (CR1) **t = 39.8**; sign agreement
+61.7%; pooled Spearman 0.318, t = 37.5 (same events and number as the PT2 vendor gate).
+
+Tests: `tests/unit/test_outcomes.py` (12: formulas, windows, announcement availability = event_date + 1, fundamental PIT rules,
+quarterly rule, check and set statistics), `tests/lake/test_outcomes_lake.py` (7: availability pin, analyst and fundamental
+future-poison in three modes with positive controls).
+
+### Deviations from 05 and why
+- Set comparison (P95, D10, C_maj, ...) and the D10-vs-D1 CMH run are not executed: they need the MS1/MS3 prediction sets, which are
+  being built concurrently. The functions exist and are tested; hook them to `oos_prediction` after MS1 merges.
+- Monthly anchors get horizon 3M only (no monthly 1Y, no 1M rows); `fundamental` is June-only.
+- The 3M window of the 2025-06 anchor reads vendor events up to 2025-09-30, inside the sealed 3M label window (outcome rows of an
+  unsealed anchor, as instructed); no sealed label is read.
+- A (company, month) panel duplicate keeps the earliest-available row.
+
+### Risks
+- The snapshot holds one version per fact (no restatements), so "as restated in Nov-2026" is the same as first reported here.
+- Vendor estimates cannot be shown to be point-in-time; coverage is survivors-only and size-biased (see PT2).
+- Fundamental outcomes use the FY basis decided on the late view (hindsight on C/S choice); outcome-only.
+- Quarterly outcomes are thin before 2025; treat `fundamental_q` as report-only.

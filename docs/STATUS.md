@@ -1330,7 +1330,7 @@ RF_GLOBAL: R-C
 | runtime | fit time within the card (WFO 283 s, CPCV 53 min); wall 128 min (see above) |
 | `uv run ruff check .` | clean |
 | `uv run pytest -m "not lake"` | **563 passed**, 1 xfailed, 1 xpassed (E1 documented), 125 s |
-| `uv run pytest -m lake` | @@LAKE@@ |
+| `uv run pytest -m lake` | **106 passed** (incl. T-02, 4 tests), 545 s |
 | `uv run python scripts/secret_scan.py --all` | clean |
 
 ### Deviations from 05 and why

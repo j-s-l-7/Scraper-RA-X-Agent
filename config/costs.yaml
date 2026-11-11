@@ -1,0 +1,13 @@
+# Retail cost model (03 §D2). DEFAULTS TO VERIFY WITH THE OWNER'S BROKER; all overridable. Used by the MS3 portfolio
+# rows (notional 10 lakh, fractional-share approximation: the integer-share floor and the exact MILP are P7).
+notional_inr: 1000000
+brokerage_per_order_inr: 0.0      # delivery brokerage 0 (or 20 per order)
+stt_buy: 0.001
+stt_sell: 0.001
+nse_transaction: 0.0000297
+sebi_per_crore_inr: 10
+stamp_buy: 0.00015
+gst: 0.18                         # on brokerage + exchange + SEBI
+dp_charge_per_scrip_sell_inr: 15.93
+research_cost_bps_per_side: 12    # the dossier's research cost (C12), shown alongside
+rf_annual: 0.07                   # risk-free used for Sharpe/Sortino/Treynor

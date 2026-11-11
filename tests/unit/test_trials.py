@@ -20,14 +20,22 @@ CONFIG = REPO_ROOT / "config"
 def test_families_load_with_declared_n() -> None:
     one_y = load_family("1Y-june")
     tactical = load_family("tactical-3M")
-    assert len(one_y) == 50
+    assert len(one_y) == 53  # 50 pre-registered + 3 PT3 challengers
     assert len(tactical) == 25
-    assert [s.num for s in one_y] == list(range(1, 51))
-    assert len({s.config_hash for s in one_y}) == 50
+    assert [s.num for s in one_y] == list(range(1, 54))
+    assert len({s.config_hash for s in one_y}) == 53
+    # the 50 frozen hashes did not move when the PT3 entries were appended (digest of the hashes of #1-#50 at MS1)
+    import hashlib
+
+    assert hashlib.sha256("\n".join(s.config_hash for s in one_y[:50]).encode()).hexdigest()[:16] == "23cf0ac3bf318ee1"
     ids = {s.trial_id: s for s in one_y}
     assert {"P1_COMP_EW", "RF_GLOBAL", "RF_GLOBAL_EXT", "CONS_MAJ", "ENS_RANKAVG"} <= set(ids)
     assert ids["RF_GLOBAL_9010SEC"].num == 49
     assert ids["RF_GLOBAL_EXT_9010SEC"].num == 50
+    pt3 = [ids["SCR_GLOBAL_AR"], ids["RF_GLOBAL_AR"], ids["SCR_GLOBAL_TREND"]]
+    assert [s.num for s in pt3] == [51, 52, 53]
+    assert [s.config["subset"] for s in pt3] == ["annual_covered", "annual_covered", "trend_covered"]
+    assert [s.config["paired_with"] for s in pt3] == ["SCR_GLOBAL", "RF_GLOBAL", "SCR_GLOBAL"]
     assert ids["RF_GLOBAL_9010SEC"].config["ninety_ten_sec"] is True
     t_ids = {s.trial_id: s for s in tactical}
     assert t_ids["RF_T0_9010SEC"].num == 25

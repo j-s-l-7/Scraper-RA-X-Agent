@@ -46,13 +46,13 @@ def test_register_then_train_guard(ddl_sandbox: GuardedConnection) -> None:
     # The live schema may already hold the registered families (MS1 registers 1Y-june, MS2 tactical-3M), so count
     # inserted + already-present instead of assuming an empty table.
     first = register(conn, one_y)
-    assert len(first.inserted) + len(first.existing) == 50
-    assert first.n_family == 50
+    assert len(first.inserted) + len(first.existing) == 53
+    assert first.n_family == 53
     again = register(conn, one_y)
     assert again.inserted == ()
-    assert len(again.existing) == 50
+    assert len(again.existing) == 53
     assert register(conn, tactical).n_family == 25
-    assert family_n(conn, "1Y-june") == 50
+    assert family_n(conn, "1Y-june") == 53
     rows = registered(conn, "1Y-june")
     assert {status for _, _, status, _ in rows} <= {"registered", "ok", "failed"}
     assert [name for _, name, _, _ in rows][:3] == ["P1_UNIFIED", "P1_UNIFIED_XS", "P1_COMP_DOSSIER"]

@@ -6,7 +6,7 @@
 # Owner after E1: MS1.
 family: 1Y-june
 horizon: 1Y
-n_declared: 50
+n_declared: 53
 
 defaults:
   anchor_family: june            # June last session; train {T-3, T-2, T-1} after the C3 purge
@@ -111,3 +111,39 @@ trials:
   - {num: 49, id: RF_GLOBAL_9010SEC, learner: rf, ninety_ten_sec: true, paired_with: RF_GLOBAL}
   - {num: 50, id: RF_GLOBAL_EXT_9010SEC, learner: rf, features: core_ext, ninety_ten_sec: true,
      paired_with: RF_GLOBAL_EXT}
+  # PT3 (05 §12 item 2): annual-report and multi-call-trend CHALLENGERS, registered 2026-11-11 BEFORE any fit. They are added
+  # to the family (N = 50 -> 53 for the DSR) but the frozen entries above and their hashes are untouched. Not selectable,
+  # `subset` trials run only with `train --pt3`, each against its control arm (same learner, core columns, same covered names).
+  # Learner rule fixed a priori: linear = SCR_GLOBAL (highest mean counted IC, 0.0137, among the global-spec linear learners
+  # on the core columns of MS1-core); RF = RF_GLOBAL (the plain global RF core spec). The trend trial uses the linear learner.
+  # `feature_sets` is restated here (core + the PT3 block) so the defaults, and with them the 50 frozen hashes, stay as they were.
+  - num: 51
+    id: SCR_GLOBAL_AR
+    learner: scr
+    features: core_ar
+    subset: annual_covered
+    indicative: true
+    paired_with: SCR_GLOBAL
+    feature_sets:
+      core: {base: core, add: []}
+      core_ar: {base: core, add: [ar_tone, ar_unc, ar_aud, ar_rpt, ar_cl, d_ar_tone, d_ar_unc, d_ar_aud, d_ar_rpt, d_ar_cl]}
+  - num: 52
+    id: RF_GLOBAL_AR
+    learner: rf
+    features: core_ar
+    subset: annual_covered
+    indicative: true
+    paired_with: RF_GLOBAL
+    feature_sets:
+      core: {base: core, add: []}
+      core_ar: {base: core, add: [ar_tone, ar_unc, ar_aud, ar_rpt, ar_cl, d_ar_tone, d_ar_unc, d_ar_aud, d_ar_rpt, d_ar_cl]}
+  - num: 53
+    id: SCR_GLOBAL_TREND
+    learner: scr
+    features: core_trend
+    subset: trend_covered
+    indicative: true
+    paired_with: SCR_GLOBAL
+    feature_sets:
+      core: {base: core, add: []}
+      core_trend: {base: core, add: [tone_slope4, guide_slope4, impr_streak]}

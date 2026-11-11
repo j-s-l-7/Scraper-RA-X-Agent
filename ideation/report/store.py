@@ -18,7 +18,7 @@ import pandas as pd
 from ideation.labels.loader import load_labels, unsealed_only
 
 FAMILIES = {"1Y-june": "1Y", "tactical-3M": "3M"}
-EXPECTED_N = {"1Y-june": 50, "tactical-3M": 25}
+EXPECTED_N = {"1Y-june": 53, "tactical-3M": 25}
 
 
 def trial_index(conn: Any, family: str) -> pd.DataFrame:

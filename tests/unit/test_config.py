@@ -50,7 +50,7 @@ def test_secrets_file_unknown_keys_ignored(tmp_path: Path, clean_env: pytest.Mon
     assert files[0] == f
     s = Settings(_env_file=files)
     assert s.log_level == "DEBUG"
-    assert not hasattr(s, "openai_api_key")
+    assert s.openai_api_key is not None and "placeholder" not in repr(s)  # SecretStr
 
 
 def test_secrets_file_inside_repo_is_refused() -> None:

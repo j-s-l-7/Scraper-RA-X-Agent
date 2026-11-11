@@ -42,6 +42,11 @@ BANNED_SQL = {
     "financial_fact_history": "select * from equity.financial_fact_history",
     "historical_prices_history": "select * from equity.historical_prices_history",
     "growth_summary": "select * from equity.growth_summary",
+    "expert_call": "select * from ideation.expert_call",
+    "expert_call_symbol": "select * from ideation.expert_call_symbol",
+    "expert_extraction_cache": "select * from ideation.expert_extraction_cache",
+    "expert_signal_ledger": "select * from ideation.expert_signal_ledger",
+    "v_expert_active_calls": "select * from ideation.v_expert_active_calls",
     "TTM": "select * from equity.financial_fact where period_type = 'TTM'",
     "historical_prices.close": "select historical_prices.close from equity.historical_prices",
 }

@@ -397,3 +397,26 @@ DOCUMENTS_CATALOG = NamedQuery(
         "text_path": _S,
     },
 )
+
+# ── expert ledger (04 §6; live-only consumer, ideation/experts) ────────────────────────────────────────────────
+EXPERT_BHAV_CLOSES = NamedQuery(
+    "expert_bhav_closes",
+    "select symbol, date, close from equity.nse_bhav_full where symbol = any(%(symbols)s)"
+    " and series in ('EQ', 'BE', 'BZ') and date >= %(since)s",
+    sources=("equity.nse_bhav_full",),
+    doc="Raw closes for a handful of symbols since a date (expert forward ledger). Index on (symbol, date); < 50 ms.",
+)
+
+EXPERT_BENCH = NamedQuery(
+    "expert_bench",
+    "select date, value from macro.series_daily where code = %(code)s and date >= %(since)s order by date",
+    sources=("macro.series_daily",),
+    doc="One index series since a date (expert ledger benchmark). PK (code, date); < 10 ms.",
+)
+
+EXPERT_ADJ_FACTOR = NamedQuery(
+    "expert_adj_factor",
+    "select symbol, ex_date, factor from equity.adj_factor where symbol = any(%(symbols)s) and ex_date >= %(since)s",
+    sources=("equity.adj_factor",),
+    doc="Split/bonus/dividend factors for a handful of symbols since a date. 26k rows total; < 20 ms.",
+)

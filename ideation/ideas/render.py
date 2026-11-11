@@ -131,7 +131,14 @@ def render_horizon(
     L += [", ".join(sorted(ood["symbol"].astype(str)))] if len(ood) else ["None."]
     ex = sel["excluded"]
     if len(ex):
-        L += ["", "## Expert-flagged (excluded from long ideas)", "", ", ".join(sorted(ex["symbol"].astype(str)))]
+        L += ["", "## Expert-flagged (excluded from long ideas)", "", "_expert overlay, live, unvalidated_", "",
+              ", ".join(sorted(ex["symbol"].astype(str)))]  # fmt: skip
+    lg = sel["longs"]
+    if "boost" in lg.columns and (lg["boost"].any() or lg["conflict"].any()):
+        L += ["", "## Expert overlay on long ideas", "", "_expert overlay, live, unvalidated_", ""]
+        L += [f"- {r.symbol}: expert boost (+1 conviction notch, financials stay capped)" for r in lg[lg["boost"]].itertuples()]
+        L += [f"- {r.symbol}: CONFLICT, expert likes it but the model ranks it in the bottom decile; not promoted"
+              for r in lg[lg["conflict"]].itertuples()]  # fmt: skip
     if llm:
         L += ["", f"_LLM summaries above are {LLM_LABEL}; they never influence scores._"]
     L += ["", "---", FOOTER, ""]

@@ -66,6 +66,12 @@ BANS: Final[tuple[Ban, ...]] = (
     _ident("financial_fact_history", "restatement log from 2026-11-01 only"),
     _ident("historical_prices_history", "price-revision log from 2026-11-01 only"),
     _ident("growth_summary", "screener's current compounded-growth summary"),
+    # Expert signals from X (04): live-only, unvalidated. Every ideation.expert_* table and view is banned.
+    _ident("expert_call", "live-only expert calls from X (04)"),
+    _ident("expert_call_symbol", "live-only expert calls from X (04)"),
+    _ident("expert_extraction_cache", "live-only expert calls from X (04)"),
+    _ident("expert_signal_ledger", "live-only expert forward ledger (04)"),
+    _ident("v_expert_active_calls", "view over live-only expert calls (04)"),
     Ban("TTM", re.compile(r"'ttm'", re.IGNORECASE), "TTM facts are a current snapshot (02 §1.2)"),
     Ban(
         "historical_prices.close",

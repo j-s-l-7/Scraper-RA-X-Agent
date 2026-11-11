@@ -1,0 +1,33 @@
+# Expert signals from X (04 addendum). LIVE-ONLY, UNVALIDATED: never a feature, label or training input.
+# Adding this file changes config_hash, so idempotent commands recompute once after it lands.
+experts:
+  label: "expert overlay, live, unvalidated"
+  ledger_start: 2026-11-01        # "forward record since 2026-11": earlier calls are stored and used by the overlay, not scored
+  authors:
+    Gautam__Baid:
+      role: filter_boost          # company actions: hard exclude on bad calls, boost on great calls
+    aravind:
+      role: regime_tags           # speculative: macro/asset/sector narrative tags only, never company actions
+  overlay:
+    window_days: 90               # a call stops acting after this many days
+    boost_min_confidence: medium  # bullish calls below this only annotate
+    exclude_directions: [bearish, avoid]
+    boost_directions: [bullish]
+  extraction:
+    model: gpt-5.5                # OPENAI_MODEL in the secrets file overrides
+    prompt_version: v1
+    max_posts: 2000               # cap on posts sent to the model in one run
+    since_months: 12              # first-run window
+    timeout_s: 120
+    max_retries: 2
+    max_text_chars: 4000
+    request_extra: {}             # extra chat-completion fields, e.g. {reasoning_effort: low}; set after the first real call
+    # USD per 1M tokens, used only for the printed estimate. Owner-set, NOT verified against OpenAI's price list.
+    price_in_per_mtok: 5.0
+    price_out_per_mtok: 20.0
+    prompt_overhead_tokens: 650   # schema + system prompt per call
+    est_out_tokens_per_post: 250
+  ledger:
+    horizons_months: [1, 3, 12]
+    min_matured: 30               # fewer matured company-level calls per author prints "insufficient track record"
+    benchmark_code: "^NSEI"       # macro.series_daily; Nifty 50 proxy (a Nifty 500 series is not in the lake)

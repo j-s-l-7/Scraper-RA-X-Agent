@@ -370,9 +370,10 @@ def _load_dates(s: Any) -> list[date]:
 
 def resolve_fy_end(fiscal_year: int, fy_month: int, fy_cands: list[date]) -> tuple[date, str]:
     """Fiscal-year end = the LATER of the label-based end and a text-parsed 'year ended' date (the latest candidate
-    occurring >= 2 times, accepted only inside [label - 400 d, label + 45 d]). Later = more conservative."""
+    occurring >= 2 times, accepted inside [label - 400 d, label + 366 d]). Later = more conservative, so the upper
+    cap is wide: it only guards against a stray far-future date (forward-looking text)."""
     lab = label_fy_end(fiscal_year, fy_month)
-    ok = [d for d in fy_cands if lab - timedelta(days=400) <= d <= lab + timedelta(days=45)]
+    ok = [d for d in fy_cands if lab - timedelta(days=400) <= d <= lab + timedelta(days=366)]
     if ok and max(ok) > lab:
         return max(ok), "text"
     return lab, "label"
@@ -392,7 +393,8 @@ def availability(
     cands = [fixed] + ([parsed + timedelta(days=1)] if parsed else [])
     av = max(cands)
     basis = "lag" if (parsed is None or parsed + timedelta(days=1) <= fixed) else ("agm" if parsed == agm_d else "filed")
-    return {"fy_end": fy_end, "fy_end_src": fy_src, "filed_date": filed, "agm_date": agm_d, "parsed_date": parsed,
+    lab = label_fy_end(fiscal_year, fy_month)
+    return {"fy_end": fy_end, "fy_end_src": fy_src, "fy_end_label": lab, "filed_date": filed, "agm_date": agm_d, "parsed_date": parsed,
             "available_from": av, "avail_basis": basis}  # fmt: skip
 
 
@@ -454,7 +456,7 @@ def build(
             av.append(availability(int(r.fiscal_year), fym.get(int(r.company_id), 3), _load_dates(r.cover_dates),
                                    _load_dates(r.agm_dates), _load_dates(r.fy_cands), lag))  # fmt: skip
         else:
-            av.append({"fy_end": None, "fy_end_src": None, "filed_date": None, "agm_date": None, "parsed_date": None,
+            av.append({"fy_end": None, "fy_end_src": None, "fy_end_label": None, "filed_date": None, "agm_date": None, "parsed_date": None,
                        "available_from": None, "avail_basis": None})  # fmt: skip
     df = pd.concat([df.reset_index(drop=True), pd.DataFrame(av)], axis=1)
     df["lex_ver"], df["lex_hash"], df["extract_ver"], df["lag_days"] = lx.LEX_AR_V1, lx.lexicon_hash(), EXTRACT_VERSION, lag
@@ -482,7 +484,13 @@ def parse_rates(df: pd.DataFrame) -> dict[str, float]:
         "basis_filed": float((ok["avail_basis"] == "filed").sum() / n),
         "basis_agm": float((ok["avail_basis"] == "agm").sum() / n),
         "fy_end_from_text": float((ok["fy_end_src"] == "text").sum() / n),
+        "avail_gt_lag": float((_gap(ok) > ok["lag_days"]).sum() / n),
+        "avail_gt_275": float((_gap(ok) > 275).sum() / n),
     }
+
+
+def _gap(ok: pd.DataFrame) -> pd.Series:
+    return (pd.to_datetime(ok["available_from"]) - pd.to_datetime(ok["fy_end"])).dt.days
 
 
 def coverage_by_fy(df: pd.DataFrame) -> pd.DataFrame:

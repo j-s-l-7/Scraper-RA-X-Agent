@@ -218,8 +218,8 @@ def build_text_trend(
             "trend_last_doc_date": _day(g["dd"].iloc[-1]), "trend_last_available_from": _day(g["af"].max()),
             "trend_n_calls": n,
         }  # fmt: skip
-    f = pd.DataFrame.from_dict(rows, orient="index").reindex(ids)
     names = reg.names(source=TREND_SOURCE)
+    f = pd.DataFrame.from_dict(rows, orient="index", columns=[*names, *TREND_META]).reindex(ids)  # also when empty
     for n_ in names:
         f[n_] = f[n_].astype("float64") if n_ in f else float("nan")
     f[TREND_FLAG] = f["trend_n_calls"].isna().astype("int8")

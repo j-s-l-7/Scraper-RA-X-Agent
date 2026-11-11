@@ -153,7 +153,8 @@ def annual_cmd(
         f"availability (lag {lag} d after FY end, later of parsed date and lag): cover-letter filing date parsed "
         f"{pr['filed_parsed']:.1%}, AGM date parsed {pr['agm_parsed']:.1%}, either {pr['either_parsed']:.1%}; basis of "
         f"available_from: lag {pr['basis_lag']:.1%}, filed {pr['basis_filed']:.1%}, agm {pr['basis_agm']:.1%}; FY end taken "
-        f"from text {pr['fy_end_from_text']:.1%} (n={int(pr['n']):,})"
+        f"from text {pr['fy_end_from_text']:.1%}; available_from later than FY end + lag {pr['avail_gt_lag']:.1%}, later "
+        f"than FY end + 275 d {pr['avail_gt_275']:.1%} (n={int(pr['n']):,})"
     )
     q = ok[["n_words", "garble_rate", "frag_rate"]].quantile([0.01, 0.05, 0.5, 0.95, 0.99]).reset_index()
     _print_df(

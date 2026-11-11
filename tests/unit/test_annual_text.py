@@ -113,7 +113,8 @@ def test_annual_availability() -> None:
     # fiscal-year end: the LATER of the label-based end and a text-parsed 'year ended' date inside the window
     assert A.resolve_fy_end(2023, 3, [c(2022, 3, 31)]) == (c(2023, 3, 31), "label")
     assert A.resolve_fy_end(2023, 3, [c(2023, 4, 30)]) == (c(2023, 4, 30), "text")
-    assert A.resolve_fy_end(2023, 3, [c(2023, 12, 31)]) == (c(2023, 3, 31), "label")  # beyond +45 d: ignored
+    assert A.resolve_fy_end(2023, 3, [c(2023, 12, 31)]) == (c(2023, 12, 31), "text")  # later = conservative
+    assert A.resolve_fy_end(2023, 3, [c(2024, 9, 30)]) == (c(2023, 3, 31), "label")  # beyond +366 d: stray date
     # a December-year-end company whose label is the publication year: label end (Dec 2023) is the conservative one
     assert A.availability(2023, 12, [], [], [c(2022, 12, 31)])["fy_end"] == c(2023, 12, 31)
     # never earlier than the lag
@@ -238,3 +239,9 @@ def test_registry_sets() -> None:
     assert len(REG.names(source="features_annual_text.yaml")) == 10
     assert set(REG.names(source="features_text_trend.yaml")) == {"tone_slope4", "guide_slope4", "impr_streak"}
     assert all(not REG.features[n].complete for n in REG.names(sets=["annual", "text_trend"]))
+
+
+def test_trend_empty_anchor(tmp_path: Path) -> None:
+    st = _store(tmp_path, [_ar(1, 2022, 0.5, 0)], [_tdoc(1, date(2023, 1, 1), 0.5, 0.0)])  # one call only
+    f = build_text_trend(st.as_of(date(2023, 8, 31)), _members(1, 2), REG, TPAR)
+    assert f["isna_trend"].eq(1).all() and f[["tone_slope4", "guide_slope4", "impr_streak"]].isna().all().all()

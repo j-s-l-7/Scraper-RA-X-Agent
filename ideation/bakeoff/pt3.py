@@ -27,6 +27,7 @@ from ideation.trials.registry import TrialSpec
 PT3_SUBSETS = ("annual_covered", "trend_covered")
 CHAMPION = "P1_UNIFIED_XS"
 """The 90/10 pick of MS1-core (DSR 0.813 at N = 50): the reference for 'what the extra trials do to the deflation'."""
+MS1_CHAMPION_DSR = 0.813
 FLAGS = {"annual_covered": ("isna_ar", "isna_ar_prev"), "trend_covered": ("isna_trend", None)}
 
 
@@ -46,24 +47,25 @@ def coverage_table(panel: Panel, subset: str) -> pd.DataFrame:
 
 def dsr_block(specs: list[TrialSpec], panels: dict[str, Panel], root: Path, res: dict[str, dict[str, Any]]) -> dict[str, Any]:
     """Champion DSR at the pre-registered N and at the enlarged N; each PT3 trial's DSR at the enlarged N. The Sharpe pool
-    is the 40 eligible June trials of MS1-core (same rule as ``report._selectable``); the pool variance is reported with and
-    without the three PT3 trials."""
+    is ``report.apply_family``'s rule: every non-text trial with >= 3 counted ICs (March trials included), so the champion's
+    DSR at the pre-registered N must reproduce MS1-core's 0.813 (checked). The pool variance is reported with and without
+    the PT3 trials."""
     tds, _ = RP.load_trials(specs, panels, root)
     pool: dict[str, pd.Series] = {}
     for k, td in tds.items():
-        if td.tid in RP.NOT_SELECTABLE or td.spec.config["anchor_family"] != "june":
-            continue
-        ic = TX._ic_series(td.oos, td.counted).loc[lambda s, c=td.counted: s.index.isin(c)]
-        if len(ic.dropna()) >= 5:
+        ic = TX._ic_series(td.oos, td.counted)
+        ic = ic[ic.index.isin(td.counted)]
+        if len(ic.dropna()) >= 3:
             pool[k] = ic
-    sr = {k: RP.sharpe_of(v) for k, v in pool.items()}
-    arr = np.array([v for v in sr.values() if v == v])
-    n_pre, n_all = len(specs) - len(res), len(specs)
+    arr = np.array([v for v in (RP.sharpe_of(s) for s in pool.values()) if v == v])
+    n_all = len(specs)
+    n_pre = n_all - len(res)
     out: dict[str, Any] = {"n_pre": n_pre, "n_all": n_all, "pool_size": len(arr), "var_pool": float(np.var(arr, ddof=1))}
     if CHAMPION in pool:
         for label, n in (("pre", n_pre), ("all", n_all)):
             r = dsr_mod.dsr_of_series(pool[CHAMPION], arr, n_trials=n)
             out[f"champion_{label}"] = {"dsr": r.dsr, "sr0": r.sr0, "sr": r.sr, "n_trials": n}
+        out["champion_reproduces_ms1"] = abs(out["champion_pre"]["dsr"] - MS1_CHAMPION_DSR) < 0.02
     new_sr = {tid: RP.sharpe_of(r["ic_text"].loc[r["counted"]]) for tid, r in res.items()}
     arr2 = np.array([*arr, *[v for v in new_sr.values() if v == v]])
     out["var_pool_with_pt3"] = float(np.var(arr2, ddof=1))
@@ -72,7 +74,7 @@ def dsr_block(specs: list[TrialSpec], panels: dict[str, Panel], root: Path, res:
         ic = r["ic_text"].loc[r["counted"]]
         d1 = dsr_mod.dsr_of_series(ic, arr, n_trials=n_all)
         d2 = dsr_mod.dsr_of_series(ic, arr2, n_trials=n_all)
-        out["trials"][tid] = {"sr": d1.sr, "dsr_pool40": d1.dsr, "dsr_pool43": d2.dsr, "sr0": d1.sr0, "n_obs": d1.n_obs}
+        out["trials"][tid] = {"sr": d1.sr, "dsr_pool": d1.dsr, "dsr_pool_pt3": d2.dsr, "sr0": d1.sr0, "n_obs": d1.n_obs}
     return out
 
 
@@ -94,8 +96,8 @@ def render(res: dict[str, dict[str, Any]], covs: dict[str, pd.DataFrame], dsr: d
         out += [f"## Universe-restricted coverage on U_score, June anchors ({sub})", "", RP.md(c), ""]
     rows = []
     for tid, r in res.items():
-        for label, key in (("same learner, core columns, same names (control)", "vs_control"),
-                           ("full-universe model restricted to the same names", "vs_full_restricted")):  # fmt: skip
+        for label, key in (("full-universe model restricted to the same names (harder test)", "vs_full_restricted"),
+                           ("same learner, core columns, same names (matched control)", "vs_control")):  # fmt: skip
             p = r[key]
             rows.append({"trial": tid, "compared with": label, "IC with features": TX.f(p["ic_a"]), "IC other": TX.f(p["ic_b"]),
                          "delta": TX.f(p["delta"]), "CI90": f"{TX.f(p['ci90'][0])} .. {TX.f(p['ci90'][1])}",
@@ -107,10 +109,11 @@ def render(res: dict[str, dict[str, Any]], covs: dict[str, pd.DataFrame], dsr: d
         c0, c1 = dsr["champion_pre"], dsr["champion_all"]
         out += [f"{CHAMPION} (90/10 pick): DSR(IC) {TX.f(c0['dsr'])} at N = {c0['n_trials']} (SR0 {TX.f(c0['sr0'])}), "
                 f"{TX.f(c1['dsr'])} at N = {c1['n_trials']} (SR0 {TX.f(c1['sr0'])}); gate 4 needs >= 0.90. "
-                f"Pool: {dsr['pool_size']} eligible trials, variance of SR {TX.f(dsr['var_pool'], 4)} "
+                f"Pool: {dsr['pool_size']} trials with >= 3 counted ICs (apply_family rule; reproduces MS1's 0.813: "
+                f"{dsr.get('champion_reproduces_ms1')}), variance of SR {TX.f(dsr['var_pool'], 4)} "
                 f"({TX.f(dsr['var_pool_with_pt3'], 4)} with the PT3 trials).", ""]  # fmt: skip
-    drows = [{"trial": tid, "SR(IC)": TX.f(v["sr"]), "SR0 at N": TX.f(v["sr0"]), "DSR (pool of 40)": TX.f(v["dsr_pool40"]),
-              "DSR (pool of 40 + PT3)": TX.f(v["dsr_pool43"]), "n_obs": v["n_obs"]} for tid, v in dsr["trials"].items()]
+    drows = [{"trial": tid, "SR(IC)": TX.f(v["sr"]), "SR0 at N": TX.f(v["sr0"]), "DSR (MS1 pool)": TX.f(v["dsr_pool"]),
+              "DSR (pool + PT3)": TX.f(v["dsr_pool_pt3"]), "n_obs": v["n_obs"]} for tid, v in dsr["trials"].items()]
     out += [RP.md(pd.DataFrame(drows)), ""]
     for tid, r in res.items():
         a = pd.DataFrame({"with features": r["ic_text"], "control": r["ic_ctrl"], "full model restricted": r["ic_full_restricted"]})
@@ -156,9 +159,10 @@ def pt3_report(
                     {"champion": None, "pbo": None}, {}, {})  # fmt: skip
     print(f"PT3 report: {path} ({time.perf_counter() - t0:.0f} s)")
     for tid, r in res.items():
-        p = r["vs_control"]
-        print(f"{tid}: IC with features {p['ic_a']:.4f} vs control {p['ic_b']:.4f}; delta {p['delta']:+.4f} "
-              f"CI90 [{p['ci90'][0]:+.4f}, {p['ci90'][1]:+.4f}] P(>0) {p['p_gt0']:.2f}")  # fmt: skip
+        for key, lab in (("vs_full_restricted", "full-universe model on the same names"), ("vs_control", "matched control")):
+            p = r[key]
+            print(f"{tid} vs {lab}: IC {p['ic_a']:.4f} vs {p['ic_b']:.4f}; delta {p['delta']:+.4f} "
+                  f"CI90 [{p['ci90'][0]:+.4f}, {p['ci90'][1]:+.4f}] P(>0) {p['p_gt0']:.2f}")  # fmt: skip
     for k in ("champion_pre", "champion_all"):
         if k in dsr:
             print(f"{CHAMPION} DSR {k}: {dsr[k]['dsr']:.3f} (N = {dsr[k]['n_trials']})")

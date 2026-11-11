@@ -1871,3 +1871,11 @@ OOD (size 0, unscorable) among the liquid names: 7 (1Y) and 2 (3M); 13 per horiz
 - LLM summary was NOT exercised against the API (no key use in tests/by design); only the request building, parsing, caps and failure paths are tested with a fake transport.
 - The overlay is an interface only; 04's expert module (migrations 060-064) will implement `ExpertOverlay`; the exclude/boost/conflict semantics are unit-tested with a fake provider.
 - `tests/lake/test_e1_ddl.py::test_register_then_train_guard` can fail in the shared ledger (known MS2 interaction), unrelated to P6.
+
+### Acceptance (P6)
+| check | result |
+|---|---|
+| `uv run ruff check .` | All checks passed |
+| `uv run pytest -p no:xdist -m "not lake"` | 623 passed, 1 xfailed, 1 xpassed (185 s) |
+| `uv run pytest -p no:xdist -m lake` | 121 passed (986 s, Mac shared with PT3) |
+| `uv run python scripts/secret_scan.py --all` | clean |

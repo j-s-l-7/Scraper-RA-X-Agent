@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Cross-model consensus evaluation (05 §4, MS3). Pure functions over stored out-of-sample predictions.
 
 Inputs

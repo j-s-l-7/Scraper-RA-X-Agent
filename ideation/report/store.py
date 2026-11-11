@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Read-only access to the stored results the research report is built from (05 §10.3 MS3).
 
 * trial ledger, OOS predictions, outcomes: ``ideation.*`` through the guarded connection (SELECT only here);

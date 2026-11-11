@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """MS1-text (05 §3.5 #44-45, §7.3): the 1Y text trials on the covered subset, paired against the same learner without
 text on the same names, plus the secondary comparison "the full-universe model restricted to the same names".
 

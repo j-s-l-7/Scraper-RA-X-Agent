@@ -269,6 +269,8 @@ def test_fy_end_never_earlier_than_label_or_text_and_unknown_month() -> None:
     c = lambda *a: date(*a)  # noqa: E731
     # company absent from the fy-month map: the month comes from the text (latest 'year ended' date inside the label year)
     assert A.resolve_fy_end(2023, None, [c(2023, 6, 30), c(2022, 6, 30)]) == (c(2023, 6, 30), "text_month")
+    # label = the year the FY STARTS for some companies (FY2016 report = year ended 2017-03-31): the later date is kept
+    assert A.resolve_fy_end(2016, None, [c(2017, 3, 31), c(2016, 3, 31), c(2015, 3, 31)]) == (c(2017, 3, 31), "text_month")
     # no month and no text: the conservative (latest plausible) year end of the label year
     assert A.resolve_fy_end(2023, None, []) == (c(2023, 12, 31), "assumed")
     assert A.availability(2023, None, [], [], [])["available_from"] == c(2023, 12, 31) + timedelta(days=A.AVAIL_LAG_DAYS)

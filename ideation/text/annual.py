@@ -374,8 +374,9 @@ plausible Indian year end (March / June / September / December) of the label yea
 
 
 def _text_year_end(fiscal_year: int, fy_cands: list[date]) -> date | None:
-    """Latest 'year ended' candidate inside the label year itself (the FY end under the 'label = year the FY ends' reading)."""
-    ok = [d for d in fy_cands if date(fiscal_year, 1, 1) <= d <= date(fiscal_year, 12, 31)]
+    """Latest 'year ended' candidate in [Jan 1 of the label year, Dec 31 of the next year]: the FY end whether the label
+    is the year the FY ends or (as measured for a few companies) the year it starts. Prior-year comparatives lie earlier."""
+    ok = [d for d in fy_cands if date(fiscal_year, 1, 1) <= d <= date(fiscal_year + 1, 12, 31)]
     return max(ok) if ok else None
 
 
@@ -384,7 +385,7 @@ def resolve_fy_end(fiscal_year: int, fy_month: int | None, fy_cands: list[date])
     occurring >= 2 times, accepted inside [label - 400 d, label + 366 d]). Later = more conservative, so the upper
     cap is wide: it only guards against a stray far-future date (forward-looking text).
     ``fy_month`` None (company absent from the ``financial_fact`` month map): the month is derived from the text (latest
-    candidate inside the label year), else ``ASSUMED_FY_MONTH`` (December: the later of the plausible candidates)."""
+    candidate in the label year or the next one), else ``ASSUMED_FY_MONTH`` (December: the later of the plausible candidates)."""
     src_unknown = ""
     if fy_month is None:
         t = _text_year_end(fiscal_year, fy_cands)

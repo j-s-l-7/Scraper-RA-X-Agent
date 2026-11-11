@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Annual-report text extraction (05 §12 item 2, PT3). Deterministic, rule-based: no network, no LLM, no clock.
 
 One row per (company_id, fiscal_year). ``extract_annual`` is a pure function of the page texts: it finds the

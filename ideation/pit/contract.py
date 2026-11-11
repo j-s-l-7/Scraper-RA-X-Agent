@@ -49,6 +49,10 @@ TEXT_DOCS = "text_docs"
 TEXT_DOCS_FILE = "doc_features_LEX_V1.parquet"
 """PT1 output (``ideation text extract``): one row per concall transcript / presentation with ``available_from``
 (05 §7.2). It is served as the ``text_docs`` dataset so that the same guard and ``poison_after`` apply to it."""
+ANNUAL_DOCS = "annual_docs"
+ANNUAL_DOCS_FILE = "annual_features_LEX_AR_V1.parquet"
+"""PT3 output (``ideation text annual``): one row per annual report with ``available_from`` (fiscal-year end + lag, or
+a parsed filing / AGM date if later). Same ``text_dir`` as ``text_docs``; same guard and ``poison_after``."""
 _FUTURE_IDENTITY_COLS = {"security_map": ("series_last",)}
 
 
@@ -114,7 +118,7 @@ def _prepare_text_docs(tbl: pa.Table) -> pa.Table:
         tbl = tbl.set_column(
             tbl.column_names.index("available_from"), "available_from", pc.cast(tbl["available_from"], pa.date32())
         )
-    for c in ("doc_date", "filed_date", "q_end"):
+    for c in ("doc_date", "filed_date", "q_end", "fy_end", "agm_date", "parsed_date"):
         if c in tbl.column_names and tbl[c].type != pa.date32():
             tbl = tbl.set_column(tbl.column_names.index(c), c, pc.cast(tbl[c], pa.date32()))
     if "role" not in tbl.column_names:
@@ -183,10 +187,10 @@ class PitStore:
             return self.snapshot_dir / "derived" / f"{name}.parquet"
         if name == "universe" and self.outputs_dir is not None:
             return self.outputs_dir / "universe_member.parquet"
-        if name == TEXT_DOCS:
+        if name in (TEXT_DOCS, ANNUAL_DOCS):
             if self.text_dir is None:
                 raise FileNotFoundError("no text_dir configured on this PitStore (run `ideation text extract`)")
-            return self.text_dir / TEXT_DOCS_FILE
+            return self.text_dir / (TEXT_DOCS_FILE if name == TEXT_DOCS else ANNUAL_DOCS_FILE)
         return self.snapshot_dir / f"{name}.parquet"
 
     def arrow(self, name: str) -> pa.Table:
@@ -197,7 +201,7 @@ class PitStore:
                 tbl = _poison_arrow(name, self._parent.arrow(name), *self._poison)
             else:
                 tbl = pq.read_table(self._path(name))
-                if name == TEXT_DOCS:
+                if name in (TEXT_DOCS, ANNUAL_DOCS):
                     tbl = _prepare_text_docs(tbl)
                 if "available_from" not in tbl.column_names:
                     raise LeakageError(f"dataset {name!r} has no available_from column")
@@ -467,6 +471,14 @@ class PitView:
         if columns is not None:
             df = df[[*dict.fromkeys([*columns, "available_from", "role"])]]
         return self._guard(df, f"text_docs[{doc_type}]")
+
+    def annual_docs(self, columns: Iterable[str] | None = None) -> pd.DataFrame:
+        """Annual reports with ``available_from <= anchor`` (PT3 features). ``fiscal_year`` is only a label; the
+        date a report may be used is ``available_from``; windows use ``fy_end``."""
+        df = self._available(ANNUAL_DOCS)
+        if columns is not None:
+            df = df[[*dict.fromkeys([*columns, "available_from", "role"])]]
+        return self._guard(df, "annual_docs")
 
     def issue_size(self) -> pd.DataFrame:
         return self._guard(self._available("issue_size"), "issue_size")

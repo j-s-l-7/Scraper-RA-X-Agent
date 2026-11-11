@@ -1,0 +1,20 @@
+# Multi-call text trends (05 §12 item 2, PT3), an extension of the 05 §7.3 deltas. Owner: PT3 (ideation/features/text.py,
+# build_text_trend). Concall transcripts only; same visibility rule as features_text.yaml (available_from <= A).
+#   calls   the last n_calls visible transcripts with doc_date >= A - max_age_days (by doc_date, then available_from)
+#   tone_slope4 / guide_slope4  OLS slope of tone_net / guide_net on doc_date in years over the calls (needs >= min_calls)
+#   impr_streak  consecutive strictly improving tone_net steps counted back from the latest call (0..n_calls-1)
+# NaN where fewer than min_calls calls exist (isna_trend = 1); no fill of any kind. Sign priors are a priori (+).
+version: 1
+
+params:
+  n_calls: 4
+  min_calls: 3
+  max_age_days: 800
+
+flags:
+  isna_trend: 1 when the name has fewer than min_calls visible transcripts in the window (all trend columns NaN)
+
+features:
+  tone_slope4:  {family: text_tone,  prior: 1, kind: cross_sectional, category: text_trend, set: text_trend, complete: false}
+  guide_slope4: {family: text_guide, prior: 1, kind: cross_sectional, category: text_trend, set: text_trend, complete: false}
+  impr_streak:  {family: text_tone,  prior: 1, kind: cross_sectional, category: text_trend, set: text_trend, complete: false}

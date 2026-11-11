@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """LEX_AR_V1: hand-built annual-report lexicon (05 §12 item 2, PT3). Own wording, no licensed dictionary.
 
 Tone categories ``pos``/``neg``/``unc``/``lit`` reuse the LEX_V1 word sets (hand-built, in the repo). Two annual-report

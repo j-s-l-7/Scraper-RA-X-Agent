@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """``ideation text extract --types concall_transcript,concall_ppt`` (05 §7.1).
 
 Reads the documents catalog and results-event dates from the lake (adapter, named queries), reads page text from the
@@ -155,8 +156,12 @@ def annual_cmd(
         f"from text {pr['fy_end_from_text']:.1%} (n={int(pr['n']):,})"
     )
     q = ok[["n_words", "garble_rate", "frag_rate"]].quantile([0.01, 0.05, 0.5, 0.95, 0.99]).reset_index()
-    _print_df("document quality quantiles (filter: words >= %d, garble <= %.2f, frag <= %.2f)"
-              % (annual.MIN_WORDS, annual.MAX_GARBLE, annual.MAX_FRAG), q, {"n_words": "{:,.0f}"})
+    _print_df(
+        f"document quality quantiles (filter: words >= {annual.MIN_WORDS}, garble <= {annual.MAX_GARBLE}, "
+        f"frag <= {annual.MAX_FRAG})",
+        q,
+        {"n_words": "{:,.0f}"},
+    )
     console.print(
         f"doc_ok {ok['doc_ok'].mean():.1%}; mda_ok {ok['mda_ok'].mean():.1%}; aud_ok {ok['aud_ok'].mean():.1%}; "
         f"usable (doc_ok & section) mda {((ok['doc_ok'] == 1) & (ok['mda_ok'] == 1)).mean():.1%}, aud "

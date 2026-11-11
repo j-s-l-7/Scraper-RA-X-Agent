@@ -2145,3 +2145,6 @@ DSR at N = 53: P1_UNIFIED_XS 0.813 at N = 50 -> 0.806 at N = 53 (SR0 1.097), unc
 `uv run ideation report research --family 1Y-june --family tactical-3M` re-rendered at N = 53 (the 1Y family N check passes) with a new PT3 block in question (5) (paired table from `PT3_<snap>.json`, DSR at the enlarged N)
 and a deviations note (#9) on the review rerun. The mechanism template is untouched (no literal numbers; `test_ms3_report.py` passes). P6/expert-module notes were not added to the report (not cheap: the experts overlay is
 live-only and outside the backtest report).
+
+### Acceptance
+`uv run ruff check .` clean; `pytest -p no:xdist -m "not lake"` 713 passed, 1 xfailed, 1 xpassed (153 s); `pytest -p no:xdist -m lake` 129 passed (776 s); `scripts/secret_scan.py --all` clean; no data in git.

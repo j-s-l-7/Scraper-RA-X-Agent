@@ -20,6 +20,8 @@ EXPECTED_TABLES = {
     "holdout_unseal",
     # E1 (05 §2, §5): migrations 010–012
     "oos_prediction", "rank_calibration", "outcome",
+    # expert signals (04): migrations 060-064
+    "expert_call", "expert_call_symbol", "expert_extraction_cache", "expert_signal_ledger",
 }  # fmt: skip
 
 

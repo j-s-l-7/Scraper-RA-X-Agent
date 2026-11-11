@@ -246,3 +246,29 @@ def test_scanner_catches_planted_clock_reads(planted: Path) -> None:
     mod = planted / "features" / "bad.py"
     mod.write_text("import datetime as dt\nfrom datetime import date\na = date.today()\nb = dt.datetime.now()\n")
     assert set(clock_reads(mod)) == {"date.today", "datetime.now"}
+
+
+# ── expert signals (04): live-only, unvalidated ──────────────────────────────────────────────────────────────
+EXPERT_IMPORTS = ("ideation.experts",)
+EXPERT_FREE = (*BAN_SCANNED, "cv", "models", "trials", "bakeoff", "backtest", "portfolio", "pit", "report", "tactical")
+
+
+def test_no_backtest_path_imports_experts() -> None:
+    """04 §1: expert calls are never a feature, label, training input or backtest source."""
+    files = py_files(EXPERT_FREE)
+    assert files
+    hits = {p.relative_to(REPO_ROOT).as_posix(): forbidden_imports(p, forbidden=EXPERT_IMPORTS) for p in files}
+    assert {k: v for k, v in hits.items() if v} == {}
+
+
+def test_planted_experts_import_is_caught(planted: Path) -> None:
+    mod = planted / "features" / "bad.py"
+    mod.write_text("from ideation.experts import overlay\nimport ideation.experts.service\n")
+    assert set(forbidden_imports(mod, planted, EXPERT_IMPORTS)) >= {"ideation.experts", "ideation.experts.overlay"}
+
+
+def test_planted_expert_table_string_is_caught(planted: Path) -> None:
+    mod = planted / "features" / "bad.py"
+    mod.write_text('Q = "select * from ideation.expert_call"\nR = "ideation.expert_signal_ledger"\n')
+    assert set(banned_strings(mod)) == {"expert_call", "expert_signal_ledger"}
+    assert find_banned("select * from ideation.v_expert_active_calls") == ["v_expert_active_calls"]

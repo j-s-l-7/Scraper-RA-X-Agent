@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY", "IDEATION_ANTHROPIC_API_KEY")
     )
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "IDEATION_OPENAI_API_KEY")
+    )
+    """Expert-signal extraction (04). Loaded from the secrets file; never printed or logged."""
+    openai_model: str | None = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_MODEL", "IDEATION_OPENAI_MODEL")
+    )
 
     @field_validator(
         "data_dir", "xagent_db", "library_db", "documents_root", "config_dir", "secrets_file", mode="after"

@@ -57,6 +57,9 @@ def ideas_cmd(
         bool, typer.Option("--llm-summary", help="OPTIONAL: LLM call summaries (key from env; live, unvalidated).")
     ] = False,
     force: Annotated[bool, typer.Option("--force", help="Recompute even if an identical run succeeded.")] = False,
+    expert_overlay: Annotated[
+        bool, typer.Option("--expert-overlay", help="LIVE, UNVALIDATED: apply X expert calls (04). Off by default.")
+    ] = False,
 ) -> None:
     from dataclasses import replace
 
@@ -76,9 +79,14 @@ def ideas_cmd(
     meth = load_methodology()
     cfg = select.IdeasConfig.from_methodology(meth.data)
     cfg = replace(cfg, top_n=top or cfg.top_n, avoid_n=avoid or cfg.avoid_n)
-    overlay = NullOverlay()
+    overlay: Any = NullOverlay()
     t0 = time.perf_counter()
     with Writer.from_settings(settings).connect() as conn:
+        if expert_overlay:  # live-only, unvalidated (04): the only place the ideas engine touches ideation.experts
+            from ideation.experts.overlay import LiveExpertOverlay
+            from ideation.experts.settings import ExpertsConfig
+
+            overlay = LiveExpertOverlay.from_conn(conn, ExpertsConfig.from_methodology(meth.data))
         found = persist.latest_predict_run(conn)
         if found is None:
             console.print("[red]no ok predict run: run `ideation predict` first[/red]")
@@ -118,7 +126,11 @@ def ideas_cmd(
                     except llm_mod.LlmUnavailable as exc:
                         console.print(f"[yellow]LLM summary skipped: {exc}[/yellow]")
                     llm_all.update(llm or {})
-                rows = persist.idea_rows(cur, run.run_id, as_of, h, regime, {}, llm)
+                ov_json = {
+                    int(c): {"label": getattr(overlay, "label", ""), "effects": g[["action", "person", "direction", "url"]].to_dict("records")}
+                    for c, g in eff.groupby("company_id")
+                } if len(eff) else {}
+                rows = persist.idea_rows(cur, run.run_id, as_of, h, regime, ov_json, llm)
                 persist.write_ideas(conn, rows)
                 model = str(pred["model"].iloc[0]) if len(pred) else "?"
                 calib = pstats["horizons"][h]["calibration"]

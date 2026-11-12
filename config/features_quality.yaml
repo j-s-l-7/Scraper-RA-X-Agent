@@ -1,0 +1,26 @@
+# Quality / investment family (accuracy lab E1, axis "feature set"). Point-in-time from the same annual lines and the
+# same availability dates as config/features_fundamental.yaml (filing-lag shift comes from PitView.fundamentals).
+# set: quality -> own tier; never part of `core`/`ext` and never in feature_complete (complete: false), so U_score
+# and every legacy `base: core` feature set are unchanged. Builder: ideation/features/quality.py.
+#
+# Definitions (FY t = the latest FY visible at the anchor, t-1 = the preceding FY on the same basis, 12 months earlier;
+# a Delta that spans a basis switch or a period gap is NaN, like growth in the fundamental builder):
+#   gp_ta       gross profitability = Sales * (1 - (Material Cost % + Manufacturing Cost %) / 100) / avg(Total Assets)
+#               (Novy-Marx; COGS proxied by the two Screener cost lines; NaN unless both are present). Layout core only.
+#   accruals    (Net Profit - Cash from Operations) / avg(Total Assets)   (Sloan; prior -1). Layout core only.
+#   asset_gr    Total Assets_t / Total Assets_{t-1} - 1   (investment / asset growth; prior -1). All layouts.
+#   piotroski   F-score, 8 of the 9 Piotroski components (the catalog has no current ratio), each 0/1, sum 0..8, NaN
+#               unless all 8 are defined: ROA>0, CFO>0, dROA>0, CFO>NP, dLeverage<0 (Borrowings/TA), no new equity
+#               (Equity Capital not up), dOperating margin>0, dAsset turnover (Sales/TA)>0. Layout core only.
+#               Equity Capital also rises on bonus issues, so component 6 is noisy (disclosed).
+lines:
+  mat_pct: profit-loss/Material Cost %
+  mfg_pct: profit-loss/Manufacturing Cost %
+
+version: 1
+
+features:
+  gp_ta:     {family: gp_ta,   prior: 1,  kind: cross_sectional, category: quality, layouts: [core], set: quality, growth: false, complete: false, need_fy: 2, lines: [sales, mat_pct, mfg_pct, ta]}
+  accruals:  {family: accrual_sloan, prior: -1, kind: cross_sectional, category: quality, layouts: [core], set: quality, growth: false, complete: false, need_fy: 2, lines: [np, cfo, ta]}
+  asset_gr:  {family: asset_gr, prior: -1, kind: cross_sectional, category: investment, layouts: [core, fin_layout, fin_other], set: quality, growth: true, complete: false, need_fy: 2, lines: [ta]}
+  piotroski: {family: piotroski, prior: 1, kind: cross_sectional, category: quality, layouts: [core], set: quality, growth: false, complete: false, need_fy: 2, lines: [np, cfo, ta, borr, eqcap, op, sales]}

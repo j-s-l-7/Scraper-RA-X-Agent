@@ -19,6 +19,9 @@ app = typer.Typer(no_args_is_help=True, add_completion=False, help="Indian-equit
 runs_app = typer.Typer(no_args_is_help=True, help="Run registry inspection.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(trials_app, name="trials")
+from ideation.lab.cli import app as lab_app  # noqa: E402
+
+app.add_typer(lab_app, name="lab")
 
 
 def _register_subapps() -> None:

@@ -31,7 +31,8 @@ SEALED_RANGES: dict[str, tuple[date, date]] = {
     "1M": (date(2025, 7, 1), date(2026, 9, 30)),
 }
 DEFAULT_FAMILY = {"1Y": "1Y-june", "3M": "tactical-3M", "1M": "tactical-3M"}
-FAMILY_HORIZONS = {"1Y-june": {"1Y"}, "1Y-march": {"1Y"}, "tactical-3M": {"3M", "1M"}, "tactical-1M": {"1M"}}
+FAMILY_HORIZONS = {"1Y-june": {"1Y"}, "1Y-march": {"1Y"}, "tactical-3M": {"3M", "1M"}, "tactical-1M": {"1M"},
+                   "1Y-monthly-v2": {"1Y"}, "lab-reality": {"1Y", "3M", "1M"}}
 
 
 class SealedAnchorError(PermissionError):

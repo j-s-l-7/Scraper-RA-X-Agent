@@ -21,7 +21,11 @@ from ideation.config import REPO_ROOT, canonical_json
 from ideation.db.writer import GuardedConnection
 from ideation.models.zoo import learner_params
 
-FAMILY_FILES = {"1Y-june": "trials_1y.yaml", "tactical-3M": "trials_tactical.yaml"}
+FAMILY_FILES = {
+    "1Y-june": "trials_1y.yaml",
+    "tactical-3M": "trials_tactical.yaml",
+    "1Y-monthly-v2": "trials_lab.yaml",
+}
 ZOO_HORIZON = {"1Y": "1Y", "3M": "tactical", "1M": "tactical"}
 
 
@@ -88,9 +92,9 @@ def validate(specs: Sequence[TrialSpec], n_declared: int) -> None:
         if len(set(values)) != len(values):
             raise ValueError(f"duplicate trial {name} in the family")
     for s in specs:
-        kinds = [k for k in ("learner", "model", "consensus") if k in s.config]
+        kinds = [k for k in ("learner", "model", "consensus", "control") if k in s.config]
         if len(kinds) != 1:
-            raise ValueError(f"trial {s.trial_id} needs exactly one of learner/model/consensus, got {kinds}")
+            raise ValueError(f"trial {s.trial_id} needs exactly one of learner/model/consensus/control, got {kinds}")
     members = {m for s in specs for m in s.config.get("members", [])}
     if not members <= set(ids):
         raise ValueError(f"consensus members not in the family: {sorted(members - set(ids))}")

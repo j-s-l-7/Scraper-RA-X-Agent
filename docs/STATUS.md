@@ -2079,3 +2079,40 @@ LIVE-ONLY, UNVALIDATED. Gautam Baid = hard-filter bad / boost great; Aravind = r
 
 ### Acceptance (Experts)
 `ruff check .` clean; `pytest -m "not lake"`: 682 passed after one fix (the adapter ban test needed a case per new ban; added), 1 xfail, 1 xpass (both pre-existing E1); `pytest -m lake`: 123 passed in 11m47s (serial, `nice -n 10`); `scripts/secret_scan.py --all` clean.
+
+
+## Accuracy lab (branch `phase-accuracy-lab`, worktree `../wt-lab`; family `1Y-monthly-v2`, N = 18)
+
+Date 2026-11-11/12. Snapshot `20261105-e33e7986`. No migration; `init-db` never run from the worktree; nothing written to `equity`/`macro`; labels only through
+`load_labels(unsealed_only)` (counted anchors end 2024-06-30; the 2025 holdout is untouched). 18 trials registered (`ideation trials register --family 1Y-monthly-v2`) BEFORE
+any fit from `config/trials_lab.yaml` (frozen after reading AUDIT.md; incorporates fixed-weight re-reporting on all 9 June anchors, consumed-column adversarial gate with
+anchor-shuffle null, raw binary breakouts, effective-N DSR, MDE, pre-registered BLEND_VAL_PRICE and ex-ante-signed VMQL_FIXED, COVID-stale column). 1Y N = 53 + 18 = 71.
+Verdict file (plain language): `~/Ideation-data/reports/accuracy/LAB_RESULTS.md`; tables `~/Ideation-data/lab/<snap>/LAB_TABLES.md`.
+
+### Headline
+- No pre-registered change raises honest OOS 1Y IC convincingly. Best defensible level: valuation composite about 0.05-0.07 (0.069 over 9 June anchors, 0.040 over all monthly anchors), not 0.12.
+- Core-fundamental learners: -0.029..-0.046 (monthly design), about 0 (June design). Momentum/vol/regime/size jointly: ridge +0.047, SCR 0.065 (null-sd 2.0; neutralised 0.116), trees 0.01-0.03.
+  Quality/investment family: no gain (-0.008). Targets (rank/industry/beta-neutral): +0.00..+0.03 vs rg, inside noise. Ensemble 0.043. DSR about 0 at N = 18 and 71 (0.20-0.24 at effective N = 10).
+- Null calibration (30 seeds of the shuffled-target config): sd of mean IC 0.033, 95% band about +-0.065. Bootstrap CIs over months are too narrow (noise is per fitted model).
+- BLEND_VAL_PRICE (fixed 50/50, tactical SCR_T0 price score + 3-yield value) IC 0.125, 5/5 eras; same-period caveat, fails the calibrated adversarial gate, +0.017 vs VALUE_ONLY (t 0.6): hypothesis, not a finding.
+- Harness reproduces legacy June numbers exactly (P1_UNIFIED_XS 0.121, VALUE_ONLY 0.129, P1_COMP_EW 0.029).
+
+### Built
+`ideation/lab/` (`build_fund` monthly fundamental + quality rebuild into `IDEATION_DATA_DIR/lab/<snap>/`, never `outputs/`; `panel`; `design` purge/embargo/uniqueness weights/eras; `stats` reporting standard + leak alarm + DSR at two N;
+`targets`; `engine`; `run` (checkpoints keyed by a hash of the matrix columns, labels, code version and config); `report`; `null_calibration`; `cli`: `ideation lab build|run|report`), `ideation/features/quality.py` + `config/features_quality.yaml` (set `quality`, `complete: false`,
+so U_score and legacy `core` are unchanged), `Learner` optional `meta['sample_weight']` (absent => bit-identical), loader/registry family plumbing. Tests: `tests/leakage/test_lab_canary.py` (shuffled target, date permutation on iid synthetic, noisy-future-return alarm,
+label_end-violating sample rejected by `assert_purged`/`assert_no_overlap_leak`, `check_available`, uniqueness weights, effective N), `tests/unit/test_features_quality.py` (future-poison, 3 modes + positive control), `tests/unit/test_lab_cache.py`
+(a changed feature/label/code version changes the cache key), `tests/lake/test_lab_lake.py` (legacy reproduction, no sealed anchors requested, monthly rebuild == legacy June features).
+
+### Commands and runtimes (Mac shared, `nice -n 8`, 4 threads)
+`ideation lab build` (monthly fundamentals 383 s + quality 275 s, in-process, 199 anchors); `ideation lab run` (30 genuine fits-sets, RF core 131 s / RF full 255 s monthly, rest < 25 s; second run printed 0 cache hits, i.e. all genuine);
+`ideation lab report` (about 10 min); null calibration 30 seeds about 6 min.
+### Design (pre-registered in the YAML)
+Monthly anchors 2016-06..2024-06; 12-anchor test blocks from 2020-06; rolling 36 training anchors after the label_end <= block-start purge and a 1-anchor embargo; uniqueness weights summing to n/12; rf leaf and lgbm min_child x12; zoo 1Y params otherwise;
+June design legacy. R1 on the whole universe at each anchor; breakouts raw.
+### Deviations / risks
+90/10 stability term (permutation importance) and CPCV/PBO not run for the lab (rule reduces to IC ranking; gate 4 not certifiable); Piotroski has 8 of 9 components (no current ratio) and gross profit uses Material+Manufacturing cost lines; 5 June eras only
+(MDE 0.10-0.16); first era 2020 has 15-month-stale fundamentals; adversarial gate fails for every feature set including the 3 valuation yields; tactical champion ENS scores are not stored, so SCR_T0/RIDGE_T0/T_EW were used for the 3M check; CTRL_SHUFFLED single draw -0.039 is inside the 30-seed null;
+the legacy `bakeoff` result caches are keyed by config hash only (stale-fit hazard, reported by the PT3 fix agent) and were not reused here.
+### Acceptance
+`ruff check .` clean; `pytest -p no:xdist -m "not lake"` 724 passed, 1 xfailed, 1 xpassed (297 s); `-m lake` 133 passed (807 s); `scripts/secret_scan.py --all` clean.

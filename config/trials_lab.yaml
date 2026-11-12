@@ -1,0 +1,61 @@
+# Pre-registered accuracy-lab trials: family 1Y-monthly-v2, N = 18 (max allowed 18). Frozen BEFORE any lab fit.
+# `ideation trials register --family 1Y-monthly-v2` inserts every entry (status 'registered'); a changed config is a NEW trial.
+# DSR is reported at two N families: N = 18 (this lab) and N = 53 + 18 = 71 (all 1Y trials ever run); plus an effective-N=10 DSR.
+#
+# Design (protocol below): monthly 1Y anchors 2016-06..2024-06 (labels via load_labels(unsealed_only), counted anchors end
+# 2024-06-30 so no label window reaches the sealed 2025 returns); test blocks of 12 anchors from 2020-06; rolling-36 training
+# anchors after the C3 purge (label_end <= block start) and a 1-anchor embargo; AFML sample-uniqueness weights rescaled to
+# sum n/12; row-count hyperparameters (rf min_samples_leaf, lgbm min_child_samples) x12 (the monthly design oversamples the
+# annual one 12x); other hyperparameters = ideation/models/zoo.py 1Y params, fixed, no per-fold tuning. Every trial is also run
+# in the legacy June design (train {T-3,T-2,T-1}, tests Jun-2020..Jun-2024, no weights, unscaled params) for comparability.
+# Evaluation label is always raw ret_total; the target axis changes only the training target.
+# Audit (AUDIT.md, 2026-11-11) items built in: fixed-weight models are also re-reported on all 9 June anchors 2016-24 and all
+# monthly anchors (F1); binary breakout columns stay RAW 0/1 (C6); `lean` drops the 6 ultra-sparse layout-specific columns (F6);
+# gate-5 style adversarial AUC is computed on consumed columns with an anchor-shuffle null (F2); DSR also at effective N=10 (F4);
+# June-2020/2021 anchors use ~15-month-old fundamentals (COVID statutory overrides): a leave-2020/21-out column is reported (F5);
+# BLEND_VAL_PRICE (F8) and VMQL_FIXED (F9, ex-ante signs, equal pillar weights) are fixed-rule trials.
+family: 1Y-monthly-v2
+horizon: 1Y
+n_declared: 18
+
+defaults:
+  anchor_family: monthly
+  design: {monthly: {first_train_anchor: 2016-06-01, first_test_anchor: 2020-06-01, last_anchor: 2024-06-30, test_block: 12, window: rolling, n_train: 36, min_train: 24, embargo: 1, purge: label_end<=block_start, weights: uniqueness_sum_n_over_12, params_scale: 12}, june: {train: "T-3..T-1 June anchors", tests: [2020, 2021, 2022, 2023, 2024]}}
+  universe: U_score_monthly_hook   # universe_member.in_u_score AND feature_complete >= 0.6 (monthly rebuild reproduces the June/March features bit-identically)
+  target: rg                       # rg | xsr | ind | beta | shuffled (training target only; evaluation label is raw ret_total)
+  seed: 0
+  raw_binary_columns: [brk_1y, brk_2y, brk_3_4y, brkdn_1y, brkdn_2y, brkdn_3_4y]
+  feature_sets:
+    core: [roe_norm, roe, roa, roic, opm, roe_3y, roic_3y, fin_margin, cost_ratio, rev_g1, eps_g1, rev_g3, eps_g3, dep_g1, ta_g1, sp, ep, ebitda_ev, fcf_yield, bp, nd_ebitda, opm_vol3, roe_vol3, roic_vol3, lev]
+    lean: [roe_norm, roe, roa, roic, opm, roe_3y, roic_3y, rev_g1, eps_g1, rev_g3, eps_g3, sp, ep, ebitda_ev, fcf_yield, nd_ebitda, opm_vol3, roe_vol3, roic_vol3]
+    mvrs: [roe_norm, roe, roa, roic, opm, roe_3y, roic_3y, fin_margin, cost_ratio, rev_g1, eps_g1, rev_g3, eps_g3, dep_g1, ta_g1, sp, ep, ebitda_ev, fcf_yield, bp, nd_ebitda, opm_vol3, roe_vol3, roic_vol3, lev, size, rvol_63, beta_252, idio_vol, mom_1m, mom_3m, mom_6m, mom_12_1, rev_5d, rs_grp_3m, rs_grp_6m, rs_n500_3m, rs_n500_6m, dist_52wh, dist_52wl, brk_1y, brk_2y, brk_3_4y, brkdn_1y, brkdn_2y, brkdn_3_4y, ma200_gap, ma50_200, id_frog, regime_pct_above_200dma, regime_pct_above_50dma, regime_ad_ratio_20d, regime_nh_nl_20d, regime_div_6m, regime_pct_beating_6m, regime_vix, regime_vix_pct_3y, regime_vix_chg_1m, regime_n500_ma200_gap, regime_n500_ma200_slope_63d, regime_n500_dd_252, regime_cpi_yoy, regime_iip_yoy, regime_usdinr_3m, regime_wti_3m, regime_us10y_3m_bp]
+    mvrsq: [roe_norm, roe, roa, roic, opm, roe_3y, roic_3y, fin_margin, cost_ratio, rev_g1, eps_g1, rev_g3, eps_g3, dep_g1, ta_g1, sp, ep, ebitda_ev, fcf_yield, bp, nd_ebitda, opm_vol3, roe_vol3, roic_vol3, lev, size, rvol_63, beta_252, idio_vol, mom_1m, mom_3m, mom_6m, mom_12_1, rev_5d, rs_grp_3m, rs_grp_6m, rs_n500_3m, rs_n500_6m, dist_52wh, dist_52wl, brk_1y, brk_2y, brk_3_4y, brkdn_1y, brkdn_2y, brkdn_3_4y, ma200_gap, ma50_200, id_frog, regime_pct_above_200dma, regime_pct_above_50dma, regime_ad_ratio_20d, regime_nh_nl_20d, regime_div_6m, regime_pct_beating_6m, regime_vix, regime_vix_pct_3y, regime_vix_chg_1m, regime_n500_ma200_gap, regime_n500_ma200_slope_63d, regime_n500_dd_252, regime_cpi_yoy, regime_iip_yoy, regime_usdinr_3m, regime_wti_3m, regime_us10y_3m_bp, gp_ta, accruals, asset_gr, piotroski]
+
+consensus_members: [RIDGE_MVRSQ_RG, SCR_MVRSQ_RG, RF_MVRSQ_RG, LGBM_MVRSQ_RG]
+
+trials:
+  # learner axis on the current fundamental core, current target
+  - {num: 1, id: RIDGE_CORE_RG, learner: ridge, features: core, target: rg}
+  - {num: 2, id: SCR_CORE_RG, learner: scr, features: core, target: rg}
+  - {num: 3, id: RF_CORE_RG, learner: rf, features: core, target: rg}
+  - {num: 4, id: LGBM_CORE_RG, learner: lgbm, features: core, target: rg}
+  # target axis (ridge, core)
+  - {num: 5, id: RIDGE_CORE_XSR, learner: ridge, features: core, target: xsr}
+  - {num: 6, id: RIDGE_CORE_IND, learner: ridge, features: core, target: ind}
+  - {num: 7, id: RIDGE_CORE_BETA, learner: ridge, features: core, target: beta}
+  # feature-set axis (ridge, rg): lean core, core + momentum/vol/regime/size jointly, + quality/investment family
+  - {num: 8, id: RIDGE_LEAN_RG, learner: ridge, features: lean, target: rg}
+  - {num: 9, id: RIDGE_MVRS_RG, learner: ridge, features: mvrs, target: rg}
+  - {num: 10, id: RIDGE_MVRSQ_RG, learner: ridge, features: mvrsq, target: rg}
+  # learner axis on the richest set, plus the target axis on trees
+  - {num: 11, id: SCR_MVRSQ_RG, learner: scr, features: mvrsq, target: rg}
+  - {num: 12, id: RF_MVRSQ_RG, learner: rf, features: mvrsq, target: rg}
+  - {num: 13, id: LGBM_MVRSQ_RG, learner: lgbm, features: mvrsq, target: rg}
+  - {num: 14, id: LGBM_MVRSQ_BETA, learner: lgbm, features: mvrsq, target: beta}
+  # rank-average ensemble of the four learners on the richest set (target rg); no refit
+  - {num: 15, id: ENS_MVRSQ_RG, consensus: rankavg}
+  # controls
+  - {num: 16, id: CTRL_SHUFFLED, learner: ridge, features: mvrsq, target: shuffled}
+  - {num: 17, id: VMQL_FIXED, model: vmql_fixed, rule: "score = mean(rg ep,sp,ebitda_ev,fcf_yield,bp) + rg mom_12_1 - rg rvol_63 + mean(rg roe_norm,roic,roa,opm,-opm_vol3); equal pillar weights, ex-ante signs, nothing fitted"}
+  # diagnostic-origin fixed blend (audit F8; same-period caveat)
+  - {num: 18, id: BLEND_VAL_PRICE, model: blend_val_price, rule: "0.5 pct-rank(P1_UNIFIED_XS: ebitda_ev+sp+fcf_yield) + 0.5 pct-rank(stored tactical SCR_T0 3M walk-forward OOS score); caveat: tactical family selected on 2014-2025 3M returns", source: "tactical_ms2/scores/03_SCR_T0.parquet"}

@@ -87,6 +87,19 @@ def learner_params(key: str, horizon: Horizon = "1Y") -> dict[str, Any]:
     return copy.deepcopy(FIXED_PARAMS[key][horizon])
 
 
+def sample_weights(meta: pd.DataFrame | None) -> np.ndarray | None:
+    """Optional per-row training weights carried in ``meta['sample_weight']`` (accuracy lab: sample-uniqueness weights
+    for overlapping labels). Absent column -> ``None`` and every learner fits exactly as before (T-19 bit-identity)."""
+    if meta is None or "sample_weight" not in meta.columns:
+        return None
+    return meta["sample_weight"].to_numpy(dtype=float)
+
+
+def refuse_weights(meta: pd.DataFrame | None, who: str) -> None:
+    if sample_weights(meta) is not None:
+        raise NotImplementedError(f"{who} does not support sample weights")
+
+
 class Learner:
     """Base: remembers the fit columns, records ConvergenceWarnings, refuses missing values.
 
@@ -126,7 +139,10 @@ class Sklearn(Learner):
         self.factory = factory
 
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
-        self.est_ = self.factory().fit(X.to_numpy(dtype=float), y)
+        w = sample_weights(meta)
+        est = self.factory()
+        xm = X.to_numpy(dtype=float)
+        self.est_ = est.fit(xm, y) if w is None else est.fit(xm, y, sample_weight=w)
 
     def _predict(self, X: pd.DataFrame, meta: pd.DataFrame) -> np.ndarray:
         return self.est_.predict(X.to_numpy(dtype=float))
@@ -142,7 +158,10 @@ class Forest(Learner):
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
         from sklearn.ensemble import RandomForestRegressor
 
-        self.est_ = RandomForestRegressor(**self.params, n_jobs=self.fit_jobs).fit(X.to_numpy(dtype=float), y)
+        w = sample_weights(meta)
+        est = RandomForestRegressor(**self.params, n_jobs=self.fit_jobs)
+        xm = X.to_numpy(dtype=float)
+        self.est_ = est.fit(xm, y) if w is None else est.fit(xm, y, sample_weight=w)
 
     def _predict(self, X: pd.DataFrame, meta: pd.DataFrame) -> np.ndarray:
         self.est_.set_params(n_jobs=1)
@@ -170,7 +189,10 @@ class SignConstrainedRidge(Learner):
         if not self.used_:
             self.est_ = None
             return
-        self.est_ = Ridge(alpha=self.alpha, positive=True).fit(X[self.used_].to_numpy(dtype=float) * self.signs_, y)
+        w = sample_weights(meta)
+        xs = X[self.used_].to_numpy(dtype=float) * self.signs_
+        est = Ridge(alpha=self.alpha, positive=True)
+        self.est_ = est.fit(xs, y) if w is None else est.fit(xs, y, sample_weight=w)
 
     @property
     def coef_(self) -> pd.Series:
@@ -195,6 +217,7 @@ class PolyRidge(Learner):
         return np.hstack([poly, X[self.flags_].to_numpy(dtype=float)])
 
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
+        refuse_weights(meta, "pridge")
         self.values_, self.flags_ = value_columns(X.columns), flag_columns(X.columns)
         self.poly_ = PolynomialFeatures(self.degree, include_bias=False).fit(X[self.values_].to_numpy(dtype=float))
         self.est_ = Ridge(alpha=self.alpha).fit(self._design(X), y)
@@ -218,6 +241,7 @@ class MLPEnsemble(Learner):
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
         from sklearn.neural_network import MLPRegressor
 
+        refuse_weights(meta, "mlp")
         xm = X.to_numpy(dtype=float)
         self.ests_ = [MLPRegressor(**self.params, random_state=s).fit(xm, y) for s in self.seeds]
 
@@ -274,6 +298,7 @@ class SubsampledSVR(Learner):
         self.params = p
 
     def _fit(self, X: pd.DataFrame, y: np.ndarray, meta: pd.DataFrame) -> None:
+        refuse_weights(meta, "svr")
         from sklearn.svm import SVR
 
         rows = stratified_subsample(pd.to_datetime(meta["anchor"]).to_numpy(), self.max_rows, self.seed)
